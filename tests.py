@@ -11,35 +11,34 @@
 # for the model building & training component of your project.You can add / remove / build on code however you see fit, this is meant as a starting point.
 
 # %%
-
-import numpy as np  # linear algebra
-import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
+import numpy as np# linear algebra
+import pandas as pd# data processing, CSV file I/O (e.g. pd.read_csv)
 import os
 from glob import glob
-# % matplotlib
-# inline
 import matplotlib.pyplot as plt
+import time
+import copy
 
 ##Import any other stats/DL/ML packages you may need here. E.g. Keras, scikit-learn, etc.
 import sklearn
 from itertools import chain
 import cv2
 from sklearn.model_selection import train_test_split
+from PIL import Image
 
 ## pytorch libs
 import torch
 import torch.optim as optim
 from torch.optim import lr_scheduler
-
 import torch.nn as nn
+from torch.autograd import Variable
 import torchvision
-import torchvision.transforms as transforms
 from torchvision import models
+import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
-import time
 from ignite.engine import Engine, Events, create_supervised_trainer, create_supervised_evaluator
 from ignite.metrics import Accuracy, Loss
-from ignite.handlers import EarlyStopping, ModelCheckpoint
+from ignite.handlers import EarlyStopping, ModelCheckpoint, LRScheduler
 
 # %%
 
@@ -48,18 +47,23 @@ print("torch.cuda.current_device()", torch.cuda.current_device())
 print("torch.cuda.device(0)", torch.cuda.device(0))
 print("torch.cuda.device_count()", torch.cuda.device_count())
 print("torch.cuda.get_device_name(0)", torch.cuda.get_device_name(0))
-if torch.cuda.is_available():
-  device = torch.device('cuda:0')
+print("PyTorch Version: ", torch.__version__)
+print("Torchvision Version: ", torchvision.__version__)
+
+if True and torch.cuda.is_available():
+    device = torch.device('cuda')
+    use_gpu = True
 else:
-  device = torch.device('cpu')
+    device = torch.device('cpu')
+    use_gpu = False
 
 # %% md
 
 ## Do some early processing of your metadata for easier model training:
 
 # %%
-
 ## Below is some helper code to read all of your full image filepaths into a dataframe for easier manipulation
+
 
 def load_xray_data():
     """ load data and preprocess required fields"""
@@ -89,8 +93,6 @@ def load_xray_data():
 
 
 xray_df, disease_labels = load_xray_data()
-
-
 # %%
 
 ## Here you may want to create some extra columns in your table with binary indicators of certain diseases
@@ -151,17 +153,12 @@ print('prop. pneumonia train data: ' + str(round(train_data['Pneumonia'].sum() /
 print('prop. pneumonia validation data: ' + str(round(val_data['Pneumonia'].sum() / len(val_data), 4)))
 
 # %% md
-
 # Now we can begin our model-building & training
 
 # %% md
-
 #### First suggestion: perform some image augmentation on your data
 
 # %%
-
-
-from PIL import Image
 
 
 class ImageDataset(torch.utils.data.Dataset):
@@ -181,7 +178,7 @@ class ImageDataset(torch.utils.data.Dataset):
         x = Image.open(address).convert('RGB')
 
         vec = np.array(row['Pneumonia'], dtype=float)
-        y = torch.FloatTensor(vec)
+        y = torch.LongTensor(vec)
 
         if self.transforms:
             x = self.transforms(x)
@@ -200,14 +197,15 @@ def my_image_augmentation(vargs):
 
     # Todo
 
-    transformations = transforms.Compose([#transforms.ToPILImage(),
-                                          #transforms.CenterCrop(224),  # transforms.RandomResizedCrop(224),
-                                          transforms.RandomHorizontalFlip(),
-                                          transforms.RandomRotation(20),
-                                          transforms.ToTensor(),
-                                          # Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0] if the PIL Image belongs to one of the modes (L, LA, P, I, F, RGB, YCbCr, RGBA, CMYK, 1) or if the numpy.ndarray has dtype = np.uint8,
-                                          transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-                                          ])
+    transformations = transforms.Compose([  # transforms.ToPILImage(),
+        # transforms.CenterCrop(224),  #
+        transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(20),
+        transforms.ToTensor(),
+        # Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0] if the PIL Image belongs to one of the modes (L, LA, P, I, F, RGB, YCbCr, RGBA, CMYK, 1) or if the numpy.ndarray has dtype = np.uint8,
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
     return transformations
 
 
@@ -225,7 +223,7 @@ def make_train_gen(trainset, batch_size, transformations):
     #                                          )
     # Todo
     train_gen = ImageDataset(trainset, transformations)
-    trainloader = torch.utils.data.DataLoader(dataset=train_gen, batch_size=batch_size, shuffle=True)
+    trainloader = DataLoader(dataset=train_gen, shuffle=True, batch_size=batch_size)
     return trainloader
 
 
@@ -240,109 +238,59 @@ def make_val_gen(valset, batch_size):
 
     # Todo
     transformations = transforms.Compose([
-        # transforms.CenterCrop(224),
+        transforms.CenterCrop(224),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
-
     val_gen = ImageDataset(valset, transformations)
-
-    valloader = torch.utils.data.DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False)
+    valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False)
 
     return valloader
 
 
 # %%
-
 ## May want to pull a single large batch of random validation data for testing after each epoch:
-val_gen = make_val_gen(val_data, 100)
+val_gen = make_val_gen(val_data, 20)
 # valX, valY = next(iter(val_gen))
-
 # %%
-
-train_gen = make_train_gen(train_data, 10, my_image_augmentation(True))
+train_gen = make_train_gen(train_data, 20, my_image_augmentation(True))
 # trainX, trainY = next(iter(train_gen))
 
-
-# %%
-
-## May want to look at some examples of our augmented training data.
-## This is helpful for understanding the extent to which data is being manipulated prior to training,
-## and can be compared with how the raw data look prior to augmentation
-
-t_x, t_y = next(iter(train_gen))
-fig, m_axs = plt.subplots(4, 4, figsize=(16, 16))
-for (c_x, c_y, c_ax) in zip(t_x, t_y, m_axs.flatten()):
-    c_ax.imshow(c_x[:, :, 0], cmap='bone')
-    if c_y == 1:
-        c_ax.set_title('Pneumonia')
-    else:
-        c_ax.set_title('No Pneumonia')
-    c_ax.axis('off')
-plt.show()
-# import torchvision
-# def imshow(inp, title=None):
-#     """Imshow for Tensor."""
-#     inp = inp.numpy().transpose((1, 2, 0))
-#     mean = np.array([0.485, 0.456, 0.406])
-#     std = np.array([0.229, 0.224, 0.225])
-#     inp = std * inp + mean
-#     inp = np.clip(inp, 0, 1)
-#     plt.imshow(inp)
-#     if title is not None:
-#         plt.title(title)
-#     plt.pause(0.001)  # pause a bit so that plots are updated
-# # Get a batch of training data
-# inputs, classes = next(iter(val_gen))
-# # Make a grid from batch
-# out = torchvision.utils.make_grid(inputs)
-# imshow(out,title=[class_names[x] for x in classes])
-
 # %% md
-
 ## Build your model:
 
 # %%
 
-def load_pretrained_model(vargs):
-    # model = VGG16(include_top=True, weights='imagenet')
-    # transfer_layer = model.get_layer(lay_of_interest)
-    # vgg_model = Model(inputs = model.input, outputs = transfer_layer.output)
 
-    # Todo
-    #    The VGG-16 is able to classify 1000 different labels; we just need 4 instead. In order to do that we are going replace the last fully connected layer of the model with a new one with 4 output features instead of 1000.
-    #    In PyTorch, we can access the VGG-16 classifier with model.classifier, which is an 6-layer array. We will replace the last entry.
-    vgg_model = models.vgg16(pretrained=True)
+class PneumoNet(nn.Module):
+    def __init__(self, out_size):
+        super(PneumoNet, self).__init__()
+        self.vgg16 = models.vgg16(pretrained=True)
+        for param in self.vgg16.parameters():
+            param.requires_grad = False
 
-    return vgg_model
+        num_features = self.vgg16.classifier[6].in_features
+        features = list(self.vgg16.classifier.children())[:-1] # Remove last layer
+        # #    The VGG-16 is able to classify 1000 different labels; we just need 2 instead. In order to do that we are going replace the last fully connected layer of the model with a new one with 4 output features instead of 1000.
+        # #    In PyTorch, we can access the VGG-16 classifier with model.classifier, which is an 6-layer array. We will replace the last entry.
+        features.extend([nn.Linear(num_features, out_size)])# add Linear layer
+        self.vgg16.classifier = nn.Sequential(*features)
+
+    def forward(self, x):
+        x = self.vgg16(x)
+        features = self.vgg16.classifier[6]
+        return x, features
+
+
+model = PneumoNet(2).to(device)
+
+criterion = nn.CrossEntropyLoss()# this includes a LogSoftmax layer added after the Linear layer
+optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+
+# Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
+exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
 
 # %%
-
-def build_my_model(vargs):
-    # my_model = Sequential()
-    # ....add your pre-trained model, and then whatever additional layers you think you might
-    # want for fine-tuning (Flatteen, Dense, Dropout, etc.)
-
-    # if you want to compile your model within this function, consider which layers of your pre-trained model,
-    # you want to freeze before you compile
-
-    # also make sure you set your optimizer, loss function, and metrics to monitor
-
-    # Todo
-
-    model = load_pretrained_model()
-    for param in model.parameters():
-        param.requires_grad = False
-    num_inputs = model.fc.in_features
-    model.fc = nn.Linear(num_inputs, 2)
-    criterion = nn.CrossEntropyLoss()  # this includes a LogSoftmax layer added after the Linear layer
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-
-    # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
-    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-
-    return model, criterion, optimizer, exp_lr_scheduler
-
 
 ## STAND-OUT Suggestion: choose another output layer besides just the last classification layer of your modele
 ## to output class activation maps to aid in clinical interpretation of your model's results
@@ -373,171 +321,128 @@ def build_my_model(vargs):
 
 # callbacks_list = [checkpoint, early]
 
-# define model
-model, criterion, optimizer, exp_lr_scheduler = build_my_model()
 
-# define training engine (from ignite)
-trainer = create_supervised_trainer(model, exp_lr_scheduler, criterion)
+def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
 
-val_metrics = {
-    "accuracy": Accuracy(),
-    "nll": Loss(criterion)
-}
+    since = time.time()
+    best_model_wts = copy.deepcopy(vgg.state_dict())
+    best_acc = 0.0
 
-## evaluator training evaluator (from ignite)
-evaluator = create_supervised_evaluator(model, metrics=val_metrics)
+    avg_loss = 0
+    avg_acc = 0
+    avg_loss_val = 0
+    avg_acc_val = 0
 
+    train_batches = len(train_gen)
+    val_batches = len(val_gen)
 
-def score_function(engine):
-    val_loss = engine.state.metrics['nll']
-    return -val_loss
+    train_size = train_gen.dataset.len
+    val_size = val_gen.dataset.len
 
+    for epoch in range(num_epochs):
 
-handler = EarlyStopping(patience=10, score_function=score_function, trainer=trainer)
-# Note: the handler is attached to an *Evaluator* (runs one epoch on validation dataset).
-evaluator.add_event_handler(Events.COMPLETED, handler)
+        print("Epoch {}/{}".format(epoch, num_epochs))
+        print('-' * 10)
 
-handler = ModelCheckpoint('.' + os.sep, "{}_my_model.best.hdf5".format('xray_class'), n_saved=3, create_dir=True)
+        loss_train = 0
+        loss_val = 0
+        acc_train = 0
+        acc_val = 0
 
-trainer.add_event_handler(Events.EPOCH_COMPLETED(every=5), handler, {'mymodel': model})
+        vgg.train(True)
 
-@trainer.on(Events.ITERATION_COMPLETED(every=100))
-def log_training_loss(trainer):
-    print(f"Epoch[{trainer.state.epoch}] Loss: {trainer.state.output:.2f}")
+        for i, data in enumerate(train_gen):
+            if i % 100 == 0:
+                print("\rTraining batch {}/{}".format(i, train_batches / 2), end='', flush=True)
 
-@trainer.on(Events.EPOCH_COMPLETED)
-def log_training_results(trainer):
-    evaluator.run(train_gen)
-    metrics = evaluator.state.metrics
-    print(
-        f"Training Results - Epoch: {trainer.state.epoch}  Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['nll']:.2f}")
+            # Use half training dataset
+            if i >= train_batches / 2:
+                break
 
+            inputs, labels = data
 
-@trainer.on(Events.EPOCH_COMPLETED)
-def log_validation_results(trainer):
-    evaluator.run(val_gen)
-    metrics = evaluator.state.metrics
-    print(
-        f"Validation Results - Epoch: {trainer.state.epoch}  Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['nll']:.2f}")
+            if use_gpu:
+                inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
+            else:
+                inputs, labels = Variable(inputs), Variable(labels)
+
+            optimizer.zero_grad()
+
+            outputs = vgg(inputs)
+
+            _, preds = torch.max(outputs[0], 1)
+            loss = criterion(outputs[0], labels)
+
+            loss.backward()
+            optimizer.step()
+
+            loss_train += loss
+            acc_train += torch.sum(preds == labels)
+
+            del inputs, labels, outputs, preds
+            torch.cuda.empty_cache()
+
+        print()
+        # * 2 as we only used half of the dataset
+        avg_loss = loss_train * 2 / train_size
+        avg_acc = acc_train * 2 / train_size
+
+        vgg.train(False)
+        vgg.eval()
+
+        for i, data in enumerate(val_gen):
+            if i % 100 == 0:
+                print("\rValidation batch {}/{}".format(i, val_batches), end='', flush=True)
+
+            inputs, labels = data
+
+            if use_gpu:
+                inputs, labels = Variable(inputs.cuda(), volatile=True), Variable(labels.cuda(), volatile=True)
+            else:
+                inputs, labels = Variable(inputs, volatile=True), Variable(labels, volatile=True)
+
+            optimizer.zero_grad()
+
+            outputs = vgg(inputs)
+
+            _, preds = torch.max(outputs.data, 1)
+            loss = criterion(outputs, labels)
+
+            loss_val += loss.data[0]
+            acc_val += torch.sum(preds == labels.data)
+
+            del inputs, labels, outputs, preds
+            torch.cuda.empty_cache()
+
+        avg_loss_val = loss_val / val_size
+        avg_acc_val = acc_val / val_size
+
+        print()
+        print("Epoch {} result: ".format(epoch))
+        print("Avg loss (train): {:.4f}".format(avg_loss))
+        print("Avg acc (train): {:.4f}".format(avg_acc))
+        print("Avg loss (val): {:.4f}".format(avg_loss_val))
+        print("Avg acc (val): {:.4f}".format(avg_acc_val))
+        print('-' * 10)
+        print()
+
+        if avg_acc_val > best_acc:
+            best_acc = avg_acc_val
+            best_model_wts = copy.deepcopy(vgg.state_dict())
+
+    elapsed_time = time.time() - since
+    print()
+    print("Training completed in {:.0f}m {:.0f}s".format(elapsed_time // 60, elapsed_time % 60))
+    print("Best acc: {:.4f}".format(best_acc))
+
+    vgg.load_state_dict(best_model_wts)
+    return vgg
 
 
 # %% md
 
 ### Start training!
 
-# %%
+vgg16 = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=2)
+torch.save(vgg16.state_dict(), 'PneumoVGG16_dataset.pt')
 
-## train your model
-
-# Todo
-
-# history = my_model.fit_generator(train_gen,
-#                           validation_data = (valX, valY),
-#                           epochs = ,
-#                           callbacks = callbacks_list)
-
-
-trainer.run(train_gen, max_epochs=25)
-
-# %% md
-
-##### After training for some time, look at the performance of your model by plotting some performance statistics:
-
-# Note, these
-# figures
-# will
-# come in handy
-# for your FDA documentation later in the project
-
-# %%
-
-## After training, make some predictions to assess your model's overall performance
-## Note that detecting pneumonia is hard even for trained expert radiologists,
-## so there is no need to make the model perfect.
-# my_model.load_weights(weight_path)
-# pred_Y = new_model.predict(valX, batch_size=32, verbose=True)
-
-
-# %%
-
-def plot_auc(t_y, p_y):
-    ## Hint: can use scikit-learn's built in functions here like roc_curve
-
-    # Todo
-
-    return
-
-
-## what other performance statistics do you want to include here besides AUC?
-
-
-# def ...
-# Todo
-
-# def ...
-# Todo
-
-# Also consider plotting the history of your model training:
-
-def plot_history(history):
-    # Todo
-    return
-
-
-# %%
-
-## plot figures
-
-# Todo
-
-# %% md
-#
-# Once
-# you
-# feel
-# you
-# are
-# done
-# training, you
-# 'll need to decide the proper classification threshold that optimizes your model'
-# s
-# performance
-# for a given metric (e.g.accuracy, F1, precision, etc.You decide)
-
-# %%
-
-## Find the threshold that optimize your model's performance,
-## and use that threshold to make binary classification. Make sure you take all your metrics into consideration.
-
-# Todo
-
-# %%
-
-## Let's look at some examples of predicted v. true with our best model:
-
-# Todo
-
-# fig, m_axs = plt.subplots(10, 10, figsize = (16, 16))
-# i = 0
-# for (c_x, c_y, c_ax) in zip(valX[0:100], testY[0:100], m_axs.flatten()):
-#     c_ax.imshow(c_x[:,:,0], cmap = 'bone')
-#     if c_y == 1:
-#         if pred_Y[i] > YOUR_THRESHOLD:
-#             c_ax.set_title('1, 1')
-#         else:
-#             c_ax.set_title('1, 0')
-#     else:
-#         if pred_Y[i] > YOUR_THRESHOLD:
-#             c_ax.set_title('0, 1')
-#         else:
-#             c_ax.set_title('0, 0')
-#     c_ax.axis('off')
-#     i=i+1
-
-# %%
-
-## Just save model architecture to a .json:
-
-# model_json = my_model.to_json()
-# with open("my_model.json", "w") as json_file:
-#     json_file.write(model_json)
