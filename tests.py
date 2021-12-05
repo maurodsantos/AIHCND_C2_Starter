@@ -11,6 +11,8 @@
 # for the model building & training component of your project.You can add / remove / build on code however you see fit, this is meant as a starting point.
 
 # %%
+import math
+
 import numpy as np# linear algebra
 import pandas as pd# data processing, CSV file I/O (e.g. pd.read_csv)
 import os
@@ -68,7 +70,7 @@ else:
 def load_xray_data():
     """ load data and preprocess required fields"""
     df = pd.read_csv('data/Data_Entry_2017.csv')
-
+    df = df.iloc[0:math.floor(len(df)/4), :]
     def convert(x):
         """assume that the first number is incorrect for ages above 110"""
         if x > 110:
@@ -348,12 +350,21 @@ def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
         loss_val = 0
         acc_train = 0
         acc_val = 0
+        avg_loss_aux = 0
+        avg_acc_aux = 0
+        avg_loss_val_aux = 0
+        avg_acc_val_aux = 0
 
         vgg.train(True)
 
         for i, data in enumerate(train_gen):
+
             if i % 100 == 0:
-                print("\rTraining batch {}/{}".format(i, train_batches / 2), end='', flush=True)
+
+                if i > 0:
+                    avg_loss_aux = loss_train / i
+                    avg_acc_aux = acc_train / i
+                print("\rTraining batch {}/{}; mean_loss {}, mean acc {} ".format(i, train_batches, avg_loss_aux, avg_acc_aux), end='', flush=True)
 
             # Use half training dataset
             if i >= train_batches / 2:
@@ -384,15 +395,18 @@ def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
 
         print()
         # * 2 as we only used half of the dataset
-        avg_loss = loss_train * 2 / train_size
-        avg_acc = acc_train * 2 / train_size
+        avg_loss = loss_train / train_size
+        avg_acc = acc_train / train_size
 
         vgg.train(False)
         vgg.eval()
 
         for i, data in enumerate(val_gen):
             if i % 100 == 0:
-                print("\rValidation batch {}/{}".format(i, val_batches), end='', flush=True)
+                if i > 0:
+                    avg_loss_val_aux = loss_val / i
+                    avg_acc_val_aux = acc_val / i
+                print("\rValidation batch {}/{}; avg loss {}; avg acc {}".format(i, val_batches, avg_loss_val_aux, avg_acc_val_aux), end='', flush=True)
 
             inputs, labels = data
 
@@ -405,10 +419,10 @@ def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
 
             outputs = vgg(inputs)
 
-            _, preds = torch.max(outputs.data, 1)
-            loss = criterion(outputs, labels)
+            _, preds = torch.max(outputs[0], 1)
+            loss = criterion(outputs[0], labels)
 
-            loss_val += loss.data[0]
+            loss_val += loss
             acc_val += torch.sum(preds == labels.data)
 
             del inputs, labels, outputs, preds
