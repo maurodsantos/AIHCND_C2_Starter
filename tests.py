@@ -323,22 +323,26 @@ exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 # callbacks_list = [checkpoint, early]
 
 
-def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
 
+def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5):
+
+    history_aux = {}
     since = time.time()
     best_model_wts = copy.deepcopy(vgg.state_dict())
     best_acc = 0.0
 
-    avg_loss = 0
-    avg_acc = 0
-    avg_loss_val = 0
-    avg_acc_val = 0
+    train_avg_loss_list = []
+    train_avg_acc_list = []
+    val_avg_loss_list = []
+    val_avg_acc_list = []
 
     train_batches = len(train_gen)
     val_batches = len(val_gen)
 
     train_size = train_gen.dataset.len
     val_size = val_gen.dataset.len
+
+    patience_aux = 0
 
     for epoch in range(num_epochs):
 
@@ -365,9 +369,9 @@ def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
                     avg_acc_aux = acc_train / ((i+1)*len(data[0]))
                 print("\rTraining batch {}/{}; mean_loss {}, mean acc {} ".format(i, train_batches, avg_loss_aux, avg_acc_aux), end='', flush=True)
 
-            # Use half training dataset
-            if i >= train_batches / 2:
-                break
+            # # Use half training dataset
+            # if i >= train_batches / 2:
+            #     break
 
             inputs, labels = data
 
@@ -381,10 +385,10 @@ def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
             outputs = vgg(inputs)
 
             _, preds = torch.max(outputs[0], 1)
-            loss = criterion(outputs[0], labels)
+            loss = model_criterion(outputs[0], labels)
 
             loss.backward()
-            optimizer.step()
+            model_optimizer.step()
 
             loss_train += loss
             acc_train += torch.sum(preds == labels)
@@ -394,8 +398,11 @@ def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
 
         print()
         # * 2 as we only used half of the dataset
-        avg_loss = loss_train / train_size
-        avg_acc = acc_train / train_size
+        train_avg_loss = loss_train / train_size
+        train_avg_acc = acc_train / train_size
+
+        train_avg_loss_list.append(train_avg_loss)
+        train_avg_acc_list.append(train_avg_acc)
 
         vgg.train(False)
         vgg.eval()
@@ -427,35 +434,52 @@ def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
             del inputs, labels, outputs, preds
             torch.cuda.empty_cache()
 
-        avg_loss_val = loss_val / val_size
-        avg_acc_val = acc_val / val_size
+        val_avg_loss = loss_val / val_size
+        val_avg_acc = acc_val / val_size
+        val_avg_loss_list.append(val_avg_loss)
+        val_avg_acc_list.append(val_avg_acc)
 
         print()
         print("Epoch {} result: ".format(epoch))
-        print("Avg loss (train): {:.4f}".format(avg_loss))
-        print("Avg acc (train): {:.4f}".format(avg_acc))
-        print("Avg loss (val): {:.4f}".format(avg_loss_val))
-        print("Avg acc (val): {:.4f}".format(avg_acc_val))
+        print("Avg loss (train): {:.4f}".format(train_avg_loss))
+        print("Avg acc (train): {:.4f}".format(train_avg_acc))
+        print("Avg loss (val): {:.4f}".format(val_avg_loss))
+        print("Avg acc (val): {:.4f}".format(val_avg_acc))
         print('-' * 10)
         print()
 
-        if avg_acc_val > best_acc:
-            best_acc = avg_acc_val
+        if val_avg_acc > best_acc:
+            print("val_binary_accuracy improved from {}".format(best_acc))
+            best_acc = val_avg_acc
             best_model_wts = copy.deepcopy(vgg.state_dict())
+            torch.save(vgg.state_dict(), 'PneumoVGG16_checkpoint.pt')
+
+        else:
+            patience_aux = patience_aux+1
+            print("val_binary_accuracy did not improve from {}".format(best_acc))
+            if patience_aux > patience:
+                break
 
     elapsed_time = time.time() - since
-    print()
     print("Training completed in {:.0f}m {:.0f}s".format(elapsed_time // 60, elapsed_time % 60))
     print("Best acc: {:.4f}".format(best_acc))
 
     vgg.load_state_dict(best_model_wts)
-    return vgg
+
+    history_aux['train_avg_loss'] = train_avg_loss_list
+    history_aux['train_avg_acc']  = train_avg_acc_list
+    history_aux['val_avg_loss']   = val_avg_loss_list
+    history_aux['val_avg_acc']    = val_avg_acc_list
+
+    return vgg, history_aux
 
 
 # %% md
 
 ### Start training!
 
-vgg16 = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=2)
-torch.save(vgg16.state_dict(), 'PneumoVGG16_dataset.pt')
+vgg16, history = train_model(model, criterion, optimizer, num_epochs=10)
+torch.save(vgg16.state_dict(), 'PneumoVGG16_weights.pt')
+history_df = pd.DataFrame(history)
+history_df.to_csv('PneumoVGG16_history.csv')
 
