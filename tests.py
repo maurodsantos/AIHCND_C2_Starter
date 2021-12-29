@@ -17,14 +17,11 @@ import numpy as np# linear algebra
 import pandas as pd# data processing, CSV file I/O (e.g. pd.read_csv)
 import os
 from glob import glob
-import matplotlib.pyplot as plt
 import time
 import copy
 
 ##Import any other stats/DL/ML packages you may need here. E.g. Keras, scikit-learn, etc.
-import sklearn
 from itertools import chain
-import cv2
 from sklearn.model_selection import train_test_split
 from PIL import Image
 
@@ -38,10 +35,6 @@ import torchvision
 from torchvision import models
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
-from ignite.engine import Engine, Events, create_supervised_trainer, create_supervised_evaluator
-from ignite.metrics import Accuracy, Loss
-from ignite.handlers import EarlyStopping, ModelCheckpoint, LRScheduler
-
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
