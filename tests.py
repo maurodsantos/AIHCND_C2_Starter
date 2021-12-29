@@ -262,7 +262,6 @@ train_gen = make_train_gen(train_data, 20, my_image_augmentation(True))
 
 # %%
 
-
 class PneumoNet(nn.Module):
     def __init__(self, out_size):
         super(PneumoNet, self).__init__()
@@ -282,7 +281,6 @@ class PneumoNet(nn.Module):
         features = self.vgg16.classifier[6]
         return x, features
 
-
 model = PneumoNet(2).to(device)
 
 criterion = nn.CrossEntropyLoss()# this includes a LogSoftmax layer added after the Linear layer
@@ -296,6 +294,7 @@ exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
 ## STAND-OUT Suggestion: choose another output layer besides just the last classification layer of your modele
 ## to output class activation maps to aid in clinical interpretation of your model's results
+
 
 # %%
 
@@ -362,8 +361,8 @@ def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
             if i % 100 == 0:
 
                 if i > 0:
-                    avg_loss_aux = loss_train / i
-                    avg_acc_aux = acc_train / i
+                    avg_loss_aux = loss_train / ((i+1)*len(data[0]))
+                    avg_acc_aux = acc_train / ((i+1)*len(data[0]))
                 print("\rTraining batch {}/{}; mean_loss {}, mean acc {} ".format(i, train_batches, avg_loss_aux, avg_acc_aux), end='', flush=True)
 
             # Use half training dataset
@@ -404,8 +403,8 @@ def train_model(vgg, criterion, optimizer, scheduler, num_epochs=10):
         for i, data in enumerate(val_gen):
             if i % 100 == 0:
                 if i > 0:
-                    avg_loss_val_aux = loss_val / i
-                    avg_acc_val_aux = acc_val / i
+                    avg_loss_val_aux = loss_val / ((i+1)*len(data[0]))
+                    avg_acc_val_aux = acc_val / ((i+1)*len(data[0]))
                 print("\rValidation batch {}/{}; avg loss {}; avg acc {}".format(i, val_batches, avg_loss_val_aux, avg_acc_val_aux), end='', flush=True)
 
             inputs, labels = data
