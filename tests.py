@@ -432,14 +432,8 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
         val_avg_loss_list.append(val_avg_loss)
         val_avg_acc_list.append(val_avg_acc)
 
-        print()
-        print("Epoch {} result: ".format(epoch))
-        print("Avg loss (train): {:.4f}".format(train_avg_loss))
-        print("Avg acc (train): {:.4f}".format(train_avg_acc))
-        print("Avg loss (val): {:.4f}".format(val_avg_loss))
-        print("Avg acc (val): {:.4f}".format(val_avg_acc))
+        print("Epoch {} - Train Avg Loss/ACC: {:.4f} / {:.4f}; Val Avg Loss/ACC: {:.4f} / {:.4f}".format(epoch,train_avg_loss,train_avg_acc,val_avg_loss,val_avg_acc))
         print('-' * 10)
-        print()
 
         if val_avg_acc > best_acc:
             print("val_binary_accuracy improved from {}".format(best_acc))
