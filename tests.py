@@ -477,4 +477,4 @@ vgg16, history = train_model(model, criterion, optimizer, num_epochs=1)
 torch.save(vgg16.state_dict(), 'PneumoVGG16_weights.pt')
 history_df = pd.DataFrame(history)
 history_df.to_csv('PneumoVGG16_history.csv')
-
+vgg16.config.to_json_file("my_model.json")
