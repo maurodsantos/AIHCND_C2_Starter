@@ -272,6 +272,7 @@ class PneumoNet(nn.Module):
         # #    The VGG-16 is able to classify 1000 different labels; we just need 2 instead. In order to do that we are going replace the last fully connected layer of the model with a new one with 4 output features instead of 1000.
         # #    In PyTorch, we can access the VGG-16 classifier with model.classifier, which is an 6-layer array. We will replace the last entry.
         features.extend([nn.Linear(num_features, out_size)])# add Linear layer
+        features.extend([nn.LogSoftmax(dim=1)])  # add LogSoftmax layer
         self.vgg16.classifier = nn.Sequential(*features)
 
     def forward(self, x):
@@ -286,12 +287,12 @@ model = PneumoNet(2).to(device)
 #                  (train_data['Pneumonia'] == 0).sum()/train_data['Pneumonia'].size]
 # class_weights = torch.tensor(class_weights, dtype=torch.float, device=device)
 # criterion = nn.CrossEntropyLoss(weight=class_weights)# this includes a LogSoftmax layer added after the Linear layer
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-
+criterion = nn.NLLLoss()
+#optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
-exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-
+#exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+optimizer = optim.Adam(model.fc.parameters())
+exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 4)
 # %%
 
 ## STAND-OUT Suggestion: choose another output layer besides just the last classification layer of your modele
@@ -414,7 +415,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 inputs, labels = data
                 inputs = inputs.to(device)
                 labels = labels.to(device)
-                print("\rclass0 {}; class1 {} ".format(sum(labels == 0), sum(labels)), end='', flush=True)
+                print("\rclass0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
 
                 optimizer.zero_grad()
 
