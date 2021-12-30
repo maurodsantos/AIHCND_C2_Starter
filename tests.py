@@ -157,7 +157,6 @@ print('prop. pneumonia test data: ' + str(round(test_data['Pneumonia'].sum() / l
 
 # %%
 
-
 class ImageDataset(torch.utils.data.Dataset):
     def __init__(self, df, transforms=None):
         self.data_frame = df
@@ -216,7 +215,16 @@ def make_train_gen(trainset, batch_size, transformations):
     #                                          batch_size =
     #                                          )
     train_gen = ImageDataset(trainset, transformations)
-    trainloader = DataLoader(dataset=train_gen, shuffle=True, batch_size=batch_size)
+
+    #class_weights = [train_data['Pneumonia'].size/(train_data['Pneumonia'] == 0).sum(),train_data['Pneumonia'].size/train_data['Pneumonia'].sum()]
+    class_sample_count = np.unique(train_data['Pneumonia'].values, return_counts=True)[1]
+    weight = 1. / class_sample_count
+    samples_weight = weight[train_data['Pneumonia'].values]
+    samples_weight = torch.from_numpy(samples_weight)
+
+    sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
+    trainloader = DataLoader(dataset=train_gen, batch_size=batch_size, sampler=sampler)
+
     return trainloader
 
 
@@ -274,10 +282,11 @@ class PneumoNet(nn.Module):
 
 model = PneumoNet(2).to(device)
 ## give different weights to each class, up-weighting the minor class such that it balances the numbers in the majors class
-class_weights = [train_data['Pneumonia'].sum()/train_data['Pneumonia'].size,
-                 (train_data['Pneumonia'] == 0).sum()/train_data['Pneumonia'].size]
-class_weights = torch.tensor(class_weights, dtype=torch.float, device=device)
-criterion = nn.CrossEntropyLoss(weight=class_weights)# this includes a LogSoftmax layer added after the Linear layer
+# class_weights = [train_data['Pneumonia'].sum()/train_data['Pneumonia'].size,
+#                  (train_data['Pneumonia'] == 0).sum()/train_data['Pneumonia'].size]
+# class_weights = torch.tensor(class_weights, dtype=torch.float, device=device)
+# criterion = nn.CrossEntropyLoss(weight=class_weights)# this includes a LogSoftmax layer added after the Linear layer
+criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
@@ -354,7 +363,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 if i > 0:
                     avg_loss_aux = loss_train / ((i+1)*len(data[0]))
                     avg_acc_aux = acc_train / ((i+1)*len(data[0]))
-                    print("\rTraining batch {}/{}; mean_loss {}, mean acc {} ".format(i, train_batches, avg_loss_aux, avg_acc_aux), end='', flush=True)
+                    print("\rTraining batch {}/{}; mean_loss {}, mean_acc {} ".format(i, train_batches, avg_loss_aux, avg_acc_aux), end='', flush=True)
 
             # Use half training dataset
             # if i >= 100:
