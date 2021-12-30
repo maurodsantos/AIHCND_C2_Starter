@@ -47,12 +47,7 @@ print("torch.cuda.get_device_name(0)", torch.cuda.get_device_name(0))
 print("PyTorch Version: ", torch.__version__)
 print("Torchvision Version: ", torchvision.__version__)
 
-if True and torch.cuda.is_available():
-    device = torch.device('cuda')
-    use_gpu = True
-else:
-    device = torch.device('cpu')
-    use_gpu = False
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # %% md
 
@@ -185,7 +180,7 @@ class ImageDataset(torch.utils.data.Dataset):
         return x, y
 
 
-def my_image_augmentation(vargs):
+def my_image_augmentation():
     ## recommendation here to implement a package like Keras' ImageDataGenerator
     ## with some of the built-in augmentations
 
@@ -252,7 +247,7 @@ def make_val_gen(valset, batch_size):
 val_gen = make_val_gen(val_data, 64)
 # valX, valY = next(iter(val_gen))
 # %%
-train_gen = make_train_gen(train_data, 64, my_image_augmentation(True))
+train_gen = make_train_gen(train_data, 64, my_image_augmentation())
 # trainX, trainY = next(iter(train_gen))
 
 # %% md
@@ -279,6 +274,7 @@ class PneumoNet(nn.Module):
         features = self.vgg16.classifier[6]
         return x, features
 
+
 model = PneumoNet(2).to(device)
 
 criterion = nn.CrossEntropyLoss()# this includes a LogSoftmax layer added after the Linear layer
@@ -286,7 +282,6 @@ optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
 exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-
 
 # %%
 
@@ -320,7 +315,7 @@ exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
 # callbacks_list = [checkpoint, early]
 
-def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5):
+def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10, patience=5):
 
     history_aux = {}
     since = time.time()
@@ -366,11 +361,8 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
             #     break
 
             inputs, labels = data
-
-            if use_gpu:
-                inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
-            else:
-                inputs, labels = Variable(inputs), Variable(labels)
+            inputs = inputs.to(device)
+            labels = labels.to(device)
 
             optimizer.zero_grad()
 
@@ -385,11 +377,11 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
             loss_train += loss
             acc_train += torch.sum(preds == labels)
 
-            del inputs, labels, outputs, preds
-            torch.cuda.empty_cache()
+            scheduler.step()
 
-        print()
-        # * 2 as we only used half of the dataset
+        del inputs, labels, outputs, preds
+        torch.cuda.empty_cache()
+
         train_avg_loss = loss_train / train_size
         train_avg_acc = acc_train / train_size
 
@@ -405,17 +397,14 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
                     if i > 0:
                         avg_loss_val_aux = loss_val / ((i+1)*len(data[0]))
                         avg_acc_val_aux = acc_val / ((i+1)*len(data[0]))
-                        print("\rValidation batch {}/{}; avg loss {}; avg acc {}".format(i, val_batches, avg_loss_val_aux, avg_acc_val_aux), end='', flush=True)
+                        print("\rValidation batch {}/{}; mean_loss {}; mean_acc {}".format(i, val_batches, avg_loss_val_aux, avg_acc_val_aux), end='', flush=True)
 
                 # if i >= 100:
                 #     break
 
                 inputs, labels = data
-
-                if use_gpu:
-                    inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
-                else:
-                    inputs, labels = Variable(inputs), Variable(labels)
+                inputs = inputs.to(device)
+                labels = labels.to(device)
 
                 optimizer.zero_grad()
 
@@ -427,8 +416,8 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
                 loss_val += loss
                 acc_val += torch.sum(preds == labels.data)
 
-                del inputs, labels, outputs, preds
-                torch.cuda.empty_cache()
+            del inputs, labels, outputs, preds
+            torch.cuda.empty_cache()
 
         val_avg_loss = loss_val / val_size
         val_avg_acc = acc_val / val_size
@@ -469,8 +458,7 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
 
 ### Start training!
 
-vgg16, history = train_model(model, criterion, optimizer, num_epochs=1)
-torch.save(vgg16.state_dict(), 'PneumoVGG16_weights.pt')
+vgg16, history = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=10)
+torch.save(vgg16.state_dict(), 'PneumoVGG16_weights_tests.pt')
 history_df = pd.DataFrame(history)
-history_df.to_csv('PneumoVGG16_history.csv')
-vgg16.config.to_json_file("my_model.json")
+history_df.to_csv('PneumoVGG16_history_tests.csv')
