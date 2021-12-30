@@ -467,6 +467,7 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
 
 vgg16, history = train_model(model, criterion, optimizer, num_epochs=10)
 torch.save(vgg16.state_dict(), 'PneumoVGG16_weights.pt')
+history = history.cpu()
 history_df = pd.DataFrame(history)
 history_df.to_csv('PneumoVGG16_history.csv')
 
