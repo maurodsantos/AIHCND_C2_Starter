@@ -244,10 +244,10 @@ def make_val_gen(valset, batch_size):
 
 # %%
 ## May want to pull a single large batch of random validation data for testing after each epoch:
-val_gen = make_val_gen(val_data, 64)
+val_gen = make_val_gen(val_data, 20)
 # valX, valY = next(iter(val_gen))
 # %%
-train_gen = make_train_gen(train_data, 64, my_image_augmentation(True))
+train_gen = make_train_gen(train_data, 20, my_image_augmentation(True))
 # trainX, trainY = next(iter(train_gen))
 
 # %% md
@@ -346,10 +346,6 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
         loss_val = 0
         acc_train = 0
         acc_val = 0
-        avg_loss_aux = 0
-        avg_acc_aux = 0
-        avg_loss_val_aux = 0
-        avg_acc_val_aux = 0
 
         vgg.train(True)
 
@@ -360,11 +356,11 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
                 if i > 0:
                     avg_loss_aux = loss_train / ((i+1)*len(data[0]))
                     avg_acc_aux = acc_train / ((i+1)*len(data[0]))
-                print("\rTraining batch {}/{}; mean_loss {}, mean acc {} ".format(i, train_batches, avg_loss_aux, avg_acc_aux), end='', flush=True)
+                    print("\rTraining batch {}/{}; mean_loss {}, mean acc {} ".format(i, train_batches, avg_loss_aux, avg_acc_aux), end='', flush=True)
 
-            # # Use half training dataset
-            # if i >= train_batches / 2:
-            #     break
+            # Use half training dataset
+            if i >= 100:
+                break
 
             inputs, labels = data
 
@@ -394,52 +390,56 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
         train_avg_loss = loss_train / train_size
         train_avg_acc = acc_train / train_size
 
-        train_avg_loss_list.append(train_avg_loss)
-        train_avg_acc_list.append(train_avg_acc)
+        train_avg_loss_list.append(train_avg_loss.cpu().detach().numpy())
+        train_avg_acc_list.append(train_avg_acc.cpu().detach().numpy())
 
         vgg.train(False)
         vgg.eval()
 
-        for i, data in enumerate(val_gen):
-            if i % 100 == 0:
-                if i > 0:
-                    avg_loss_val_aux = loss_val / ((i+1)*len(data[0]))
-                    avg_acc_val_aux = acc_val / ((i+1)*len(data[0]))
-                print("\rValidation batch {}/{}; avg loss {}; avg acc {}".format(i, val_batches, avg_loss_val_aux, avg_acc_val_aux), end='', flush=True)
+        with torch.no_grad():
+            for i, data in enumerate(val_gen):
+                if i % 100 == 0:
+                    if i > 0:
+                        avg_loss_val_aux = loss_val / ((i+1)*len(data[0]))
+                        avg_acc_val_aux = acc_val / ((i+1)*len(data[0]))
+                        print("\rValidation batch {}/{}; avg loss {}; avg acc {}".format(i, val_batches, avg_loss_val_aux, avg_acc_val_aux), end='', flush=True)
 
-            inputs, labels = data
+                if i >= 100:
+                    break
 
-            if use_gpu:
-                inputs, labels = Variable(inputs.cuda(), volatile=True), Variable(labels.cuda(), volatile=True)
-            else:
-                inputs, labels = Variable(inputs, volatile=True), Variable(labels, volatile=True)
+                inputs, labels = data
 
-            optimizer.zero_grad()
+                if use_gpu:
+                    inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
+                else:
+                    inputs, labels = Variable(inputs), Variable(labels)
 
-            outputs = vgg(inputs)
+                optimizer.zero_grad()
 
-            _, preds = torch.max(outputs[0], 1)
-            loss = criterion(outputs[0], labels)
+                outputs = vgg(inputs)
 
-            loss_val += loss
-            acc_val += torch.sum(preds == labels.data)
+                _, preds = torch.max(outputs[0], 1)
+                loss = criterion(outputs[0], labels)
 
-            del inputs, labels, outputs, preds
-            torch.cuda.empty_cache()
+                loss_val += loss
+                acc_val += torch.sum(preds == labels.data)
+
+                del inputs, labels, outputs, preds
+                torch.cuda.empty_cache()
 
         val_avg_loss = loss_val / val_size
         val_avg_acc = acc_val / val_size
-        val_avg_loss_list.append(val_avg_loss)
-        val_avg_acc_list.append(val_avg_acc)
+        val_avg_loss_list.append(val_avg_loss.cpu().detach().numpy())
+        val_avg_acc_list.append(val_avg_acc.cpu().detach().numpy())
 
-        print("Epoch {} - Train Avg Loss/ACC: {:.4f} / {:.4f}; Val Avg Loss/ACC: {:.4f} / {:.4f}".format(epoch,train_avg_loss,train_avg_acc,val_avg_loss,val_avg_acc))
+        print("Epoch {} - Train Avg Loss/ACC: {:.4f} / {:.4f}; Val Avg Loss/ACC: {:.4f} / {:.4f}".format(epoch, train_avg_loss, train_avg_acc, val_avg_loss, val_avg_acc))
         print('-' * 10)
 
         if val_avg_acc > best_acc:
             print("val_binary_accuracy improved from {}".format(best_acc))
             best_acc = val_avg_acc
             best_model_wts = copy.deepcopy(vgg.state_dict())
-            torch.save(vgg.state_dict(), 'PneumoVGG16_checkpoint.pt')
+            torch.save(vgg.state_dict(), 'PneumoVGG16_weights_checkpoint.pt')
 
         else:
             patience_aux = patience_aux+1
@@ -465,9 +465,8 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
 
 ### Start training!
 
-vgg16, history = train_model(model, criterion, optimizer, num_epochs=10)
+vgg16, history = train_model(model, criterion, optimizer, num_epochs=1)
 torch.save(vgg16.state_dict(), 'PneumoVGG16_weights.pt')
-history = history.cpu()
 history_df = pd.DataFrame(history)
 history_df.to_csv('PneumoVGG16_history.csv')
 
