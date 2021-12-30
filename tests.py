@@ -35,6 +35,8 @@ import torchvision
 from torchvision import models
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
+
+
 torch.manual_seed(0)
 np.random.seed(0)
 # %%
@@ -189,9 +191,6 @@ def my_image_augmentation():
 
     ## STAND-OUT SUGGESTION: implement some of your own custom augmentation that's *not*
     ## built into something like a Keras package
-
-    # Todo
-
     transformations = transforms.Compose([  # transforms.ToPILImage(),
         # transforms.CenterCrop(224),  #
         transforms.RandomResizedCrop(224),
@@ -216,7 +215,6 @@ def make_train_gen(trainset, batch_size, transformations):
     #                                          target_size = ,
     #                                          batch_size =
     #                                          )
-    # Todo
     train_gen = ImageDataset(trainset, transformations)
     trainloader = DataLoader(dataset=train_gen, shuffle=True, batch_size=batch_size)
     return trainloader
@@ -231,7 +229,6 @@ def make_val_gen(valset, batch_size):
     #                                              target_size = ,
     #                                              batch_size = )
 
-    # Todo
     transformations = transforms.Compose([
         transforms.CenterCrop(224),
         transforms.ToTensor(),
@@ -244,10 +241,10 @@ def make_val_gen(valset, batch_size):
 
 # %%
 ## May want to pull a single large batch of random validation data for testing after each epoch:
-val_gen = make_val_gen(val_data, 64)
+val_gen = make_val_gen(val_data, 20)
 # valX, valY = next(iter(val_gen))
 # %%
-train_gen = make_train_gen(train_data, 64, my_image_augmentation())
+train_gen = make_train_gen(train_data, 20, my_image_augmentation())
 # trainX, trainY = next(iter(train_gen))
 
 # %% md
@@ -276,8 +273,11 @@ class PneumoNet(nn.Module):
 
 
 model = PneumoNet(2).to(device)
-
-criterion = nn.CrossEntropyLoss()# this includes a LogSoftmax layer added after the Linear layer
+## give different weights to each class, up-weighting the minor class such that it balances the numbers in the majors class
+class_weights = [train_data['Pneumonia'].sum()/train_data['Pneumonia'].size,
+                 (train_data['Pneumonia'] == 0).sum()/train_data['Pneumonia'].size]
+class_weights = torch.tensor(class_weights, dtype=torch.float, device=device)
+criterion = nn.CrossEntropyLoss(weight=class_weights)# this includes a LogSoftmax layer added after the Linear layer
 optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
