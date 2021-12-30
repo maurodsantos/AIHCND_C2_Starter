@@ -414,6 +414,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 inputs, labels = data
                 inputs = inputs.to(device)
                 labels = labels.to(device)
+                print("\rclass0 {}; class1 {} ".format(sum(labels == 0), sum(labels)), end='', flush=True)
 
                 optimizer.zero_grad()
 
