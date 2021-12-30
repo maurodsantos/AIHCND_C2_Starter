@@ -35,6 +35,8 @@ import torchvision
 from torchvision import models
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
+torch.manual_seed(0)
+np.random.seed(0)
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -64,6 +66,7 @@ def load_xray_data():
     """ load data and preprocess required fields"""
     df = pd.read_csv('data/Data_Entry_2017.csv')
     df = df.iloc[0:math.floor(len(df)/4), :]
+
     def convert(x):
         """assume that the first number is incorrect for ages above 110"""
         if x > 110:
@@ -116,36 +119,38 @@ xray_df, disease_labels = load_xray_data()
 
 # %%
 
-def create_splits(df, test_prop, class_name):
+def create_splits(df, val_prop,test_prop, class_name):
     ## Either build your own or use a built-in library to split your original dataframe into two sets
     ## that can be used for training and testing your model
     ## It's important to consider here how balanced or imbalanced you want each of those sets to be
     ## for the presence of pneumonia
 
-    # Todo
-    # train_df, valid_df, test_df = np.split(df.sample(frac=1), [int(.6*len(df)), int(.8*len(df))])
-    # train_df, test_df = train_test_split(df, shuffle = True, test_size=0.1, random_state = 0)
-    # test_df, valid_df = train_test_split(test_d, shuffle = True, test_size=0.5, random_state = 0)
-
     # split data by patients:
     patient_df = df.groupby(['Patient ID']).first()
 
-    train_patient_df, valid_ptient_df = train_test_split(patient_df, stratify=patient_df[class_name],
-                                                         test_size=test_prop)
+    train_patient_df, test_patient_df = train_test_split(patient_df, stratify=patient_df[class_name],
+                                                         test_size=test_prop, random_state=0)
+
+    train_patient_df, validation_patient_df = train_test_split(train_patient_df, stratify=train_patient_df[class_name],
+                                                         test_size=val_prop, random_state=0)
 
     train_patient_df = df[df['Patient ID'].isin(train_patient_df.index.values)]
-    valid_ptient_df = df[df['Patient ID'].isin(valid_ptient_df.index.values)]
+    validation_patient_df = df[df['Patient ID'].isin(validation_patient_df.index.values)]
+    test_patient_df = df[df['Patient ID'].isin(test_patient_df.index.values)]
 
-    return train_patient_df, valid_ptient_df
+    return train_patient_df, validation_patient_df, test_patient_df
 
 
-train_data, val_data = create_splits(xray_df, 0.2, 'Pneumonia')
+train_data, val_data, test_data = create_splits(xray_df, 0.1, 0.1, 'Pneumonia')
 
 print('train data, n = {}({}% of the data)'.format(len(train_data), round(len(train_data) / len(xray_df) * 100, 2)))
 print('validation, n = {}({}% of the data)'.format(len(val_data), round(len(val_data) / len(xray_df) * 100, 2)))
+print('test, n = {}({}% of the data)'.format(len(test_data), round(len(test_data) / len(xray_df) * 100, 2)))
 
 print('prop. pneumonia train data: ' + str(round(train_data['Pneumonia'].sum() / len(train_data), 4)))
 print('prop. pneumonia validation data: ' + str(round(val_data['Pneumonia'].sum() / len(val_data), 4)))
+print('prop. pneumonia test data: ' + str(round(test_data['Pneumonia'].sum() / len(test_data), 4)))
+
 
 # %% md
 # Now we can begin our model-building & training
@@ -249,6 +254,10 @@ val_gen = make_val_gen(val_data, 20)
 # %%
 train_gen = make_train_gen(train_data, 20, my_image_augmentation(True))
 # trainX, trainY = next(iter(train_gen))
+# %%
+## test batch
+test_gen = make_val_gen(test_data, 20)
+# valX, valY = next(iter(val_gen))
 
 # %% md
 ## Build your model:
@@ -315,8 +324,6 @@ exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
 # callbacks_list = [checkpoint, early]
 
-
-
 def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5):
 
     history_aux = {}
@@ -359,8 +366,8 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
                     print("\rTraining batch {}/{}; mean_loss {}, mean acc {} ".format(i, train_batches, avg_loss_aux, avg_acc_aux), end='', flush=True)
 
             # Use half training dataset
-            if i >= 100:
-                break
+            # if i >= 100:
+            #     break
 
             inputs, labels = data
 
@@ -404,8 +411,8 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
                         avg_acc_val_aux = acc_val / ((i+1)*len(data[0]))
                         print("\rValidation batch {}/{}; avg loss {}; avg acc {}".format(i, val_batches, avg_loss_val_aux, avg_acc_val_aux), end='', flush=True)
 
-                if i >= 100:
-                    break
+                # if i >= 100:
+                #     break
 
                 inputs, labels = data
 
@@ -432,11 +439,11 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
         val_avg_loss_list.append(val_avg_loss.cpu().detach().numpy())
         val_avg_acc_list.append(val_avg_acc.cpu().detach().numpy())
 
-        print("Epoch {} - Train Avg Loss/ACC: {:.4f} / {:.4f}; Val Avg Loss/ACC: {:.4f} / {:.4f}".format(epoch, train_avg_loss, train_avg_acc, val_avg_loss, val_avg_acc))
-        print('-' * 10)
+        print("\rEpoch {}, Training mean_loss/acc: {:.4f} / {:.4f}; Validation mean_loss/acc: {:.4f} / {:.4f}".format(epoch, train_avg_loss, train_avg_acc, val_avg_loss, val_avg_acc))
 
         if val_avg_acc > best_acc:
             print("val_binary_accuracy improved from {}".format(best_acc))
+            print('-' * 40)
             best_acc = val_avg_acc
             best_model_wts = copy.deepcopy(vgg.state_dict())
             torch.save(vgg.state_dict(), 'PneumoVGG16_weights_checkpoint.pt')
@@ -444,6 +451,7 @@ def train_model(vgg, model_criterion, model_optimizer, num_epochs=10, patience=5
         else:
             patience_aux = patience_aux+1
             print("val_binary_accuracy did not improve from {}".format(best_acc))
+            print('-' * 40)
             if patience_aux > patience:
                 break
 
