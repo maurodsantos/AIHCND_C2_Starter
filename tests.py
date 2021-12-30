@@ -291,7 +291,7 @@ criterion = nn.NLLLoss()
 #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
 #exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-optimizer = optim.Adam(model.fc.parameters())
+optimizer = optim.Adam(model.parameters())
 exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 4)
 # %%
 
