@@ -249,15 +249,11 @@ def make_val_gen(valset, batch_size):
 
 # %%
 ## May want to pull a single large batch of random validation data for testing after each epoch:
-val_gen = make_val_gen(val_data, 20)
+val_gen = make_val_gen(val_data, 64)
 # valX, valY = next(iter(val_gen))
 # %%
-train_gen = make_train_gen(train_data, 20, my_image_augmentation(True))
+train_gen = make_train_gen(train_data, 64, my_image_augmentation(True))
 # trainX, trainY = next(iter(train_gen))
-# %%
-## test batch
-test_gen = make_val_gen(test_data, 20)
-# valX, valY = next(iter(val_gen))
 
 # %% md
 ## Build your model:
