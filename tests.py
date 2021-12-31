@@ -41,7 +41,7 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
-BATCH_SIZE = 20
+BATCH_SIZE = 64
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
