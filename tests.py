@@ -326,43 +326,6 @@ exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 4)
 #                       patience=10)
 
 # callbacks_list = [checkpoint, early]
-# the f1_loss is code from https://gist.github.com/SuperShinyEyes/dcc68a08ff8b615442e3bc6a9b55a354
-def f1_loss(y_true: torch.Tensor, y_pred: torch.Tensor, is_training=False) -> torch.Tensor:
-    '''Calculate F1 score. Can work with gpu tensors
-
-    The original implmentation is written by Michal Haltuf on Kaggle.
-
-    Returns
-    -------
-    torch.Tensor
-        `ndim` == 1. 0 <= val <= 1
-
-    Reference
-    ---------
-    - https://www.kaggle.com/rejpalcz/best-loss-function-for-f1-score-metric
-    - https://scikit-learn.org/stable/modules/generated/sklearn.metrics.f1_score.html#sklearn.metrics.f1_score
-    - https://discuss.pytorch.org/t/calculating-precision-recall-and-f1-score-in-case-of-multi-label-classification/28265/6
-
-    '''
-    assert y_true.ndim == 1
-    assert y_pred.ndim == 1 or y_pred.ndim == 2
-
-    if y_pred.ndim == 2:
-        y_pred = y_pred.argmax(dim=1)
-
-    tp = (y_true * y_pred).sum().to(torch.float32)
-    tn = ((1 - y_true) * (1 - y_pred)).sum().to(torch.float32)
-    fp = ((1 - y_true) * y_pred).sum().to(torch.float32)
-    fn = (y_true * (1 - y_pred)).sum().to(torch.float32)
-
-    epsilon = 1e-7
-
-    precision = tp / (tp + fp + epsilon)
-    recall = tp / (tp + fn + epsilon)
-
-    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
-    f1.requires_grad = is_training
-    return f1
 
 
 def accuracy(preds, labels):
@@ -455,11 +418,11 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 
             loss_train += loss
             acc_train += accuracy(preds, labels)
-            f1score_train += f1_loss(labels, preds)
 
             labels_cpu = labels.cpu().detach().numpy()
             preds_cpu = outputs[0].cpu().detach().numpy()
             preds_cpu = preds_cpu[:, 1]
+            f1score_train += f1_score(labels_cpu, preds_cpu)
             prscore_train += average_precision_score(labels_cpu,preds_cpu)
             auc_train += roc_auc_score(labels_cpu, preds_cpu)
 
@@ -474,12 +437,11 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         train_avg_prscore = prscore_train / train_size
         train_avg_f1score = f1score_train / train_size
 
-        train_avg_auc_list.append(train_avg_auc)
         train_avg_loss_list.append(train_avg_loss.cpu().detach().numpy())
         train_avg_acc_list.append(train_avg_acc.cpu().detach().numpy())
-        train_avg_prscore_list.append(train_avg_prscore.cpu().detach().numpy())
-        train_avg_f1score_list.append(train_avg_f1score.cpu().detach().numpy())
-
+        train_avg_prscore_list.append(train_avg_prscore)
+        train_avg_f1score_list.append(train_avg_f1score)
+        train_avg_auc_list.append(train_avg_auc)
 
         vgg.train(False)
         vgg.eval()
@@ -512,13 +474,12 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 
                 loss_val += loss
                 acc_val += accuracy(preds, labels)
-                f1score_val += f1_loss(labels, preds)
-
                 labels_cpu = labels.cpu().detach().numpy()
                 preds_cpu = outputs[0].cpu().detach().numpy()
                 preds_cpu = preds_cpu[:, 1]
                 prscore_val += average_precision_score(labels_cpu, preds_cpu)
                 auc_val += roc_auc_score(labels_cpu, preds_cpu)
+                f1score_val += f1_score(labels_cpu, preds_cpu)
 
             del inputs, labels, outputs, preds
             torch.cuda.empty_cache()
@@ -529,11 +490,12 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         val_avg_prscore = prscore_val / train_size
         val_avg_f1score = f1score_val / train_size
 
-        val_avg_auc_list.append(val_avg_auc)
+
         val_avg_loss_list.append(val_avg_loss.cpu().detach().numpy())
         val_avg_acc_list.append(val_avg_acc.cpu().detach().numpy())
-        val_avg_prscore_list.append(val_avg_prscore.cpu().detach().numpy())
-        val_avg_f1score_list.append(val_avg_f1score.cpu().detach().numpy())
+        val_avg_prscore_list.append(val_avg_prscore)
+        val_avg_f1score_list.append(val_avg_f1score)
+        val_avg_auc_list.append(val_avg_auc)
 
         print("\rEpoch {}, Training loss/acc/auc/prscore/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}; "
               "Validation loss/acc/auc/prscore/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}".
