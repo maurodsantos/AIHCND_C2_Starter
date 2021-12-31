@@ -476,6 +476,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 
                 loss_val += loss
                 acc_val += accuracy(preds, labels)
+                labels_cpu = labels.cpu().detach().numpy()
                 prob_cpu = outputs[0].cpu().detach().numpy()
                 prob_cpu = prob_cpu[:, 1]
                 preds_cpu = preds.cpu().detach().numpy()
