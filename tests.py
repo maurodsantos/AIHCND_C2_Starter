@@ -334,7 +334,7 @@ def accuracy(preds, labels):
 
 
 def print_metrics(phase, batch_number, total_batches, loss, acc, auc, prcore, f1score):
-    print("\r{} batch {}/{}; loss {}; acc {}; auc {}; prscore {}, f1score {}".format(phase, batch_number, total_batches,
+    print("\r{} batch {:.4f}/{:.4f}; loss {:.4f}; acc {:.4f}; auc {:.4f}; prscore {:.4f}, f1score {:.4f}".format(phase, batch_number, total_batches,
                                                                                      loss, acc,
                                                                                      auc, prcore,
                                                                                      f1score), end='', flush=True)
@@ -405,7 +405,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
             inputs, labels = data
             inputs = inputs.to(device)
             labels = labels.to(device)
-            print("\rTrain class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
+            #print("\rTrain class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
             optimizer.zero_grad()
 
             outputs = vgg(inputs)
@@ -464,7 +464,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 inputs, labels = data
                 inputs = inputs.to(device)
                 labels = labels.to(device)
-                print("\rValidation class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
+                #print("\rValidation class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
 
                 optimizer.zero_grad()
 
