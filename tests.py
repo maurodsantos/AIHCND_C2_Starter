@@ -41,6 +41,7 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
+BATCH_SIZE = 20
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -251,10 +252,10 @@ def make_val_gen(valset, batch_size):
 
 # %%
 ## May want to pull a single large batch of random validation data for testing after each epoch:
-val_gen = make_val_gen(val_data, 64)
+val_gen = make_val_gen(val_data, BATCH_SIZE)
 # valX, valY = next(iter(val_gen))
 # %%
-train_gen = make_train_gen(train_data, 64, my_image_augmentation())
+train_gen = make_train_gen(train_data, BATCH_SIZE, my_image_augmentation())
 # trainX, trainY = next(iter(train_gen))
 
 # %% md
@@ -274,7 +275,7 @@ class PneumoNet(nn.Module):
         # #    The VGG-16 is able to classify 1000 different labels; we just need 2 instead. In order to do that we are going replace the last fully connected layer of the model with a new one with 4 output features instead of 1000.
         # #    In PyTorch, we can access the VGG-16 classifier with model.classifier, which is an 6-layer array. We will replace the last entry.
         features.extend([nn.Linear(num_features, out_size)])# add Linear layer
-        features.extend([nn.LogSoftmax(dim=1)])  # add LogSoftmax layer
+        features.extend([nn.Softmax(dim=1)])  # add Softmax layer
         self.vgg16.classifier = nn.Sequential(*features)
 
     def forward(self, x):
@@ -334,7 +335,7 @@ def accuracy(preds, labels):
 
 
 def print_metrics(phase, batch_number, total_batches, loss, acc, auc, prcore, f1score):
-    print("\r{} batch {:.4f}/{:.4f}; loss {:.4f}; acc {:.4f}; auc {:.4f}; prscore {:.4f}, f1score {:.4f}".format(phase, batch_number, total_batches,
+    print("\r{} batch {}/{}; loss {:.4f}; acc {:.4f}; auc {:.4f}; prscore {:.4f}, f1score {:.4f}".format(phase, batch_number, total_batches,
                                                                                      loss, acc,
                                                                                      auc, prcore,
                                                                                      f1score), end='', flush=True)
@@ -399,8 +400,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                     print_metrics('Train', i, train_batches, avg_loss_aux, avg_acc_aux, avg_auc_aux, avg_prscore_aux, avg_f1score_aux)
 
             # Use half training dataset
-            # if i >= 100:
-            #     break
+            if i >= 100:
+                break
 
             inputs, labels = data
             inputs = inputs.to(device)
