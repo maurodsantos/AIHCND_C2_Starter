@@ -3,3 +3,4 @@ data/*
 .ipynb_checkpoints/*
 PneumoVGG16*
 my_model*
+PneumoDensenet*

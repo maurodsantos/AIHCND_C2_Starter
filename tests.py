@@ -52,8 +52,11 @@ print("torch.cuda.device_count()", torch.cuda.device_count())
 print("torch.cuda.get_device_name(0)", torch.cuda.get_device_name(0))
 print("PyTorch Version: ", torch.__version__)
 print("Torchvision Version: ", torchvision.__version__)
+if( torch.cuda.device_count()>1):
+    print("torch.cuda.device(1)", torch.cuda.device(1))
+    print("torch.cuda.get_device_name(1)", torch.cuda.get_device_name(1))
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 # %% md
 
