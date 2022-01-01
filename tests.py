@@ -41,7 +41,7 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
-BATCH_SIZE = 64
+BATCH_SIZE = 20
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -400,8 +400,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                     print_metrics('Train', i, train_batches, avg_loss_aux, avg_acc_aux, avg_auc_aux, avg_prscore_aux, avg_f1score_aux)
 
             # Use half training dataset
-            if i >= 100:
-                break
+            # if i >= 40:
+            #     break
 
             inputs, labels = data
             inputs = inputs.to(device)
@@ -483,7 +483,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 prob_cpu = prob_cpu[:, 1]
                 preds_cpu = preds.cpu().detach().numpy()
                 prscore_val += average_precision_score(labels_cpu, prob_cpu)
-                if(np.unique(labels_cpu)>1):
+                if(len(np.unique(labels_cpu))>1):
                     val_auc_count=val_auc_count+1
                     auc_val += roc_auc_score(labels_cpu, prob_cpu)
                 f1score_val += f1_score(labels_cpu, preds_cpu)
