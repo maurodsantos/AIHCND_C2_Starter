@@ -42,6 +42,7 @@ from torch.utils.data import Dataset, DataLoader
 torch.manual_seed(0)
 np.random.seed(0)
 BATCH_SIZE = 16
+NUM_EPOCHS = 30
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -378,13 +379,15 @@ def print_metrics(phase, batch_number, total_batches, loss, acc, auc, prcore, f1
 
 def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10, patience=10):
 
-    history_aux = {}
+
     since = time.time()
     best_model_wts = copy.deepcopy(vgg.state_dict())
     best_acc = 0.0
 
-    epoch_list = []
-    iteration_list = []
+    val_epoch_list = []
+    val_iteration_list = []
+    train_epoch_list = []
+    train_iteration_list = []
 
     train_avg_loss_list = []
     train_avg_acc_list = []
@@ -442,11 +445,11 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                     train_avg_prscore_list.append(avg_prscore_aux)
                     train_avg_f1score_list.append(avg_f1score_aux)
                     train_avg_auc_list.append(avg_auc_aux)
-                    epoch_list.append(epoch)
-                    iteration_list.append(i)
+                    train_epoch_list.append(epoch)
+                    train_iteration_list.append(i)
 
             # Use half training dataset
-            # if i >= 40:
+            # if i >= 101:
             #     break
 
             inputs, labels = data
@@ -495,9 +498,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         train_avg_prscore_list.append(train_avg_prscore)
         train_avg_f1score_list.append(train_avg_f1score)
         train_avg_auc_list.append(train_avg_auc)
-        epoch_list.append(epoch)
-        iteration_list.append(i)
-
+        train_epoch_list.append(epoch)
+        train_iteration_list.append(i)
         vgg.train(False)
         vgg.eval()
 
@@ -518,9 +520,9 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                         val_avg_prscore_list.append(avg_prscore_val_aux)
                         val_avg_f1score_list.append(avg_f1score_val_aux)
                         val_avg_auc_list.append(avg_f1score_val_aux)
-                        epoch_list.append(epoch)
-                        iteration_list.append(i)
-                # if i >= 100:
+                        val_epoch_list.append(epoch)
+                        val_iteration_list.append(i)
+                # if i >= 101:
                 #     break
 
                 inputs, labels = data
@@ -563,8 +565,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         val_avg_prscore_list.append(val_avg_prscore)
         val_avg_f1score_list.append(val_avg_f1score)
         val_avg_auc_list.append(val_avg_auc)
-        epoch_list.append(epoch)
-        iteration_list.append(i)
+        val_epoch_list.append(epoch)
+        val_iteration_list.append(i)
 
         print("\rEpoch {}, Training loss/acc/auc/prscore/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}; "
               "Validation loss/acc/auc/prscore/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}".
@@ -591,21 +593,34 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 
     vgg.load_state_dict(best_model_wts)
 
-    history_aux['epoch'] = epoch_list
-    history_aux['iteration'] = iteration_list
-    history_aux['train_avg_loss'] = train_avg_loss_list
-    history_aux['train_avg_acc']  = train_avg_acc_list
-    history_aux['val_avg_loss']   = val_avg_loss_list
-    history_aux['val_avg_acc']    = val_avg_acc_list
+    history_val = {}
+    history_val['epoch'] = train_epoch_list
+    history_val['iteration'] = train_iteration_list
+    history_val['avg_loss'] = train_avg_loss_list
+    history_val['avg_acc']  = train_avg_acc_list
+    history_val['avg_auc'] = train_avg_auc_list
+    history_val['avg_prscore'] = train_avg_prscore_list
+    history_val['avg_f1score'] = train_avg_f1score_list
 
-    return vgg, history_aux
+    history_train = {}
+    history_train['epoch'] = train_epoch_list
+    history_train['iteration'] = train_iteration_list
+    history_train['avg_loss']   = val_avg_loss_list
+    history_train['avg_acc']    = val_avg_acc_list
+    history_train['avg_auc'] = val_avg_auc_list
+    history_train['avg_prscore'] = val_avg_prscore_list
+    history_train['avg_f1score'] = val_avg_f1score_list
+
+    return vgg, history_train, history_val
 
 
 # %% md
 
 ### Start training!
 
-vgg16, history = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=25)
-torch.save(vgg16.state_dict(), 'PneumoDensenet121_weights_tests_imbalance.pt')
-history_df = pd.DataFrame(history)
-history_df.to_csv('PneumoDensenet121_history_tests_imbalance.csv')
+vgg16, history_train, history_val = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=NUM_EPOCHS)
+torch.save(vgg16.state_dict(), 'PneumoDensenet121_weights_tests_imbalance_{}_{}.pt'.format(BATCH_SIZE,NUM_EPOCHS))
+history_val_df = pd.DataFrame(history_val)
+history_val_df.to_csv('PneumoDensenet121_history_val_tests_imbalance_{}_{}.csv'.format(BATCH_SIZE,NUM_EPOCHS))
+history_train_df = pd.DataFrame(history_train)
+history_train_df.to_csv('PneumoDensenet121_history_train_tests_imbalance_{}_{}.csv'.format(BATCH_SIZE,NUM_EPOCHS))
