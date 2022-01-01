@@ -366,6 +366,9 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
     best_model_wts = copy.deepcopy(vgg.state_dict())
     best_acc = 0.0
 
+    epoch_list = []
+    iteration_list = []
+
     train_avg_loss_list = []
     train_avg_acc_list = []
     train_avg_auc_list = []
@@ -418,7 +421,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                     train_avg_prscore_list.append(avg_prscore_aux)
                     train_avg_f1score_list.append(avg_f1score_aux)
                     train_avg_auc_list.append(avg_auc_aux)
-
+                    epoch_list.append(epoch)
+                    iteration_list.append(i)
 
             # Use half training dataset
             # if i >= 40:
@@ -465,6 +469,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         train_avg_prscore_list.append(train_avg_prscore)
         train_avg_f1score_list.append(train_avg_f1score)
         train_avg_auc_list.append(train_avg_auc)
+        epoch_list.append(epoch)
+        iteration_list.append(i)
 
         vgg.train(False)
         vgg.eval()
@@ -486,6 +492,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                         val_avg_prscore_list.append(avg_prscore_val_aux)
                         val_avg_f1score_list.append(avg_f1score_val_aux)
                         val_avg_auc_list.append(avg_f1score_val_aux)
+                        epoch_list.append(epoch)
+                        iteration_list.append(i)
                 # if i >= 100:
                 #     break
 
@@ -528,6 +536,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         val_avg_prscore_list.append(val_avg_prscore)
         val_avg_f1score_list.append(val_avg_f1score)
         val_avg_auc_list.append(val_avg_auc)
+        epoch_list.append(epoch)
+        iteration_list.append(i)
 
         print("\rEpoch {}, Training loss/acc/auc/prscore/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}; "
               "Validation loss/acc/auc/prscore/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}".
