@@ -448,13 +448,15 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         vgg.train(False)
         vgg.eval()
 
+        val_auc_count = 0
+
         with torch.no_grad():
             for i, data in enumerate(val_gen):
                 if i % 100 == 0:
                     if i > 0:
-                        avg_loss_val_aux = loss_val / ((i+1)*len(data[0]))
-                        avg_acc_val_aux = acc_val / ((i+1)*len(data[0]))
-                        avg_auc_val_aux = auc_val / ((i + 1) * len(data[0]))
+                        avg_loss_val_aux = loss_val / (i+1)
+                        avg_acc_val_aux = acc_val / (i+1)
+                        avg_auc_val_aux = auc_val / (val_auc_count)
                         avg_prscore_val_aux = prscore_train / (i + 1)
                         avg_f1score_val_aux = f1score_train / (i + 1)
                         print_metrics('Validation', i, val_batches, avg_loss_val_aux, avg_acc_val_aux, avg_auc_val_aux, avg_prscore_val_aux, avg_f1score_val_aux)
@@ -481,7 +483,9 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 prob_cpu = prob_cpu[:, 1]
                 preds_cpu = preds.cpu().detach().numpy()
                 prscore_val += average_precision_score(labels_cpu, prob_cpu)
-                auc_val += roc_auc_score(labels_cpu, prob_cpu)
+                if(np.unique(labels_cpu)>1):
+                    val_auc_count=val_auc_count+1
+                    auc_val += roc_auc_score(labels_cpu, prob_cpu)
                 f1score_val += f1_score(labels_cpu, preds_cpu)
 
             del inputs, labels, outputs, preds
@@ -489,9 +493,9 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 
         val_avg_loss = loss_val / val_size
         val_avg_acc = acc_val / val_size
-        val_avg_auc = auc_val / val_size
-        val_avg_prscore = prscore_val / train_size
-        val_avg_f1score = f1score_val / train_size
+        val_avg_auc = auc_val / val_auc_count
+        val_avg_prscore = prscore_val / val_size
+        val_avg_f1score = f1score_val / val_size
 
 
         val_avg_loss_list.append(val_avg_loss.cpu().detach().numpy())
@@ -516,8 +520,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
             patience_aux = patience_aux+1
             print("val_binary_accuracy did not improve from {}".format(best_acc))
             print('-' * 40)
-            if patience_aux > patience:
-                break
+            # if patience_aux > patience:
+            #     break
 
     elapsed_time = time.time() - since
     print("Training completed in {:.0f}m {:.0f}s".format(elapsed_time // 60, elapsed_time % 60))
