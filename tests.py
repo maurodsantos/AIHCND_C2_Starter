@@ -359,11 +359,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
     val_avg_prscore_list = []
     val_avg_f1score_list = []
 
-    train_batches = len(train_gen)
-    val_batches = len(val_gen)
-
-    train_size = train_gen.dataset.len
-    val_size = val_gen.dataset.len
+    train_batches_size = len(train_gen)
+    val_batches_size = len(val_gen)
 
     patience_aux = 0
 
@@ -396,8 +393,13 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                     avg_auc_aux = auc_train / (i+1)
                     avg_prscore_aux = prscore_train / (i + 1)
                     avg_f1score_aux = f1score_train / (i + 1)
+                    print_metrics('Train', i, train_batches_size, avg_loss_aux, avg_acc_aux, avg_auc_aux, avg_prscore_aux, avg_f1score_aux)
+                    train_avg_loss_list.append(avg_loss_aux.cpu().detach().numpy())
+                    train_avg_acc_list.append(avg_acc_aux.cpu().detach().numpy())
+                    train_avg_prscore_list.append(avg_prscore_aux)
+                    train_avg_f1score_list.append(avg_f1score_aux)
+                    train_avg_auc_list.append(avg_auc_aux)
 
-                    print_metrics('Train', i, train_batches, avg_loss_aux, avg_acc_aux, avg_auc_aux, avg_prscore_aux, avg_f1score_aux)
 
             # Use half training dataset
             # if i >= 40:
@@ -433,11 +435,11 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         del inputs, labels, outputs, preds
         torch.cuda.empty_cache()
 
-        train_avg_loss = loss_train / train_size
-        train_avg_acc = acc_train / train_size
-        train_avg_auc = auc_train / train_size
-        train_avg_prscore = prscore_train / train_size
-        train_avg_f1score = f1score_train / train_size
+        train_avg_loss = loss_train / train_batches_size
+        train_avg_acc = acc_train / train_batches_size
+        train_avg_auc = auc_train / train_batches_size
+        train_avg_prscore = prscore_train / train_batches_size
+        train_avg_f1score = f1score_train / train_batches_size
 
         train_avg_loss_list.append(train_avg_loss.cpu().detach().numpy())
         train_avg_acc_list.append(train_avg_acc.cpu().detach().numpy())
@@ -459,8 +461,12 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                         avg_auc_val_aux = auc_val / (val_auc_count)
                         avg_prscore_val_aux = prscore_train / (i + 1)
                         avg_f1score_val_aux = f1score_train / (i + 1)
-                        print_metrics('Validation', i, val_batches, avg_loss_val_aux, avg_acc_val_aux, avg_auc_val_aux, avg_prscore_val_aux, avg_f1score_val_aux)
-
+                        print_metrics('Validation', i, val_batches_size, avg_loss_val_aux, avg_acc_val_aux, avg_auc_val_aux, avg_prscore_val_aux, avg_f1score_val_aux)
+                        val_avg_loss_list.append(avg_loss_val_aux.cpu().detach().numpy())
+                        val_avg_acc_list.append(avg_acc_val_aux.cpu().detach().numpy())
+                        val_avg_prscore_list.append(avg_prscore_val_aux)
+                        val_avg_f1score_list.append(avg_f1score_val_aux)
+                        val_avg_auc_list.append(avg_f1score_val_aux)
                 # if i >= 100:
                 #     break
 
@@ -491,11 +497,11 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
             del inputs, labels, outputs, preds
             torch.cuda.empty_cache()
 
-        val_avg_loss = loss_val / val_size
-        val_avg_acc = acc_val / val_size
+        val_avg_loss = loss_val / val_batches_size
+        val_avg_acc = acc_val / val_batches_size
         val_avg_auc = auc_val / val_auc_count
-        val_avg_prscore = prscore_val / val_size
-        val_avg_f1score = f1score_val / val_size
+        val_avg_prscore = prscore_val / val_batches_size
+        val_avg_f1score = f1score_val / val_batches_size
 
 
         val_avg_loss_list.append(val_avg_loss.cpu().detach().numpy())
