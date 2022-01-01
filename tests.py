@@ -41,7 +41,7 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
-BATCH_SIZE = 64
+BATCH_SIZE = 16
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -65,7 +65,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 def load_xray_data():
     """ load data and preprocess required fields"""
     df = pd.read_csv('data/Data_Entry_2017.csv')
-    df = df.iloc[0:math.floor(len(df)/4), :]
+    #df = df.iloc[0:math.floor(len(df)/4), :]
 
     def convert(x):
         """assume that the first number is incorrect for ages above 110"""
@@ -140,7 +140,7 @@ def create_splits_test(df, val_prop, test_prop, class_name):
     return train_patient_df, validation_patient_df, test_patient_df
 
 
-#train_data, val_data, test_data = create_splits_test(xray_df, 0.1, 0.1, 'Pneumonia')
+train_data, val_data, test_data = create_splits_test(xray_df, 0.07, 0.013, 'Pneumonia')
 
 def create_splits(df, val_prop, class_name):
     ## Either build your own or use a built-in library to split your original dataframe into two sets
@@ -160,15 +160,15 @@ def create_splits(df, val_prop, class_name):
     return train_patient_df, validation_patient_df
 
 
-train_data, val_data = create_splits(xray_df, 0.3, 'Pneumonia')
+#train_data, val_data = create_splits(xray_df, 0.3, 'Pneumonia')
 
 print('train data, n = {}({}% of the data)'.format(len(train_data), round(len(train_data) / len(xray_df) * 100, 2)))
 print('validation, n = {}({}% of the data)'.format(len(val_data), round(len(val_data) / len(xray_df) * 100, 2)))
-#print('test, n = {}({}% of the data)'.format(len(test_data), round(len(test_data) / len(xray_df) * 100, 2)))
+print('test, n = {}({}% of the data)'.format(len(test_data), round(len(test_data) / len(xray_df) * 100, 2)))
 
 print('prop. pneumonia train data: ' + str(round(train_data['Pneumonia'].sum() / len(train_data), 4)))
 print('prop. pneumonia validation data: ' + str(round(val_data['Pneumonia'].sum() / len(val_data), 4)))
-#print('prop. pneumonia test data: ' + str(round(test_data['Pneumonia'].sum() / len(test_data), 4)))
+print('prop. pneumonia test data: ' + str(round(test_data['Pneumonia'].sum() / len(test_data), 4)))
 
 
 # %% md
@@ -224,7 +224,7 @@ def my_image_augmentation():
     return transformations
 
 
-def make_train_gen(trainset, batch_size, transformations):
+def make_train_gen(trainset, batch_size, transformations, use_sampler=False):
     ## Create the actual generators using the output of my_image_augmentation for your training data
     ## Suggestion here to use the flow_from_dataframe library, e.g.:
 
@@ -237,20 +237,21 @@ def make_train_gen(trainset, batch_size, transformations):
     #                                          batch_size =
     #                                          )
     train_gen = ImageDataset(trainset, transformations)
-
-    #class_weights = [train_data['Pneumonia'].size/(train_data['Pneumonia'] == 0).sum(),train_data['Pneumonia'].size/train_data['Pneumonia'].sum()]
-    class_sample_count = np.unique(trainset['Pneumonia'].values, return_counts=True)[1]
-    weight = 1. / class_sample_count
-    samples_weight = weight[trainset['Pneumonia'].values]
-    samples_weight = torch.from_numpy(samples_weight)
-
-    sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
-    trainloader = DataLoader(dataset=train_gen, batch_size=batch_size, sampler=sampler)
+    if use_sampler:
+        #class_weights = [train_data['Pneumonia'].size/(train_data['Pneumonia'] == 0).sum(),train_data['Pneumonia'].size/train_data['Pneumonia'].sum()]
+        class_sample_count = np.unique(trainset['Pneumonia'].values, return_counts=True)[1]
+        weight = 1. / class_sample_count
+        samples_weight = weight[trainset['Pneumonia'].values]
+        samples_weight = torch.from_numpy(samples_weight)
+        sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
+        trainloader = DataLoader(dataset=train_gen, batch_size=batch_size, sampler=sampler)
+    else:
+        trainloader = DataLoader(dataset=train_gen, batch_size=batch_size, shuffle=True)
 
     return trainloader
 
 
-def make_val_gen(valset, batch_size):
+def make_val_gen(valset, batch_size,use_sampler=False):
     #     val_gen = my_val_idg.flow_from_dataframe(dataframe = val_data,
     #                                              directory=None,
     #                                              x_col = ,
@@ -264,23 +265,25 @@ def make_val_gen(valset, batch_size):
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
     val_gen = ImageDataset(valset, transformations)
-
-    class_sample_count = np.unique(valset['Pneumonia'].values, return_counts=True)[1]
-    weight = 1. / class_sample_count
-    samples_weight = weight[valset['Pneumonia'].values]
-    samples_weight = torch.from_numpy(samples_weight)
-    sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
-    valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False, sampler=sampler)
+    if use_sampler:
+        class_sample_count = np.unique(valset['Pneumonia'].values, return_counts=True)[1]
+        weight = 1. / class_sample_count
+        samples_weight = weight[valset['Pneumonia'].values]
+        samples_weight = torch.from_numpy(samples_weight)
+        sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
+        valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False, sampler=sampler)
+    else:
+        valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False)
 
     return valloader
 
 
 # %%
 ## May want to pull a single large batch of random validation data for testing after each epoch:
-val_gen = make_val_gen(val_data, BATCH_SIZE)
+val_gen = make_val_gen(val_data, BATCH_SIZE, use_sampler=False)
 # valX, valY = next(iter(val_gen))
 # %%
-train_gen = make_train_gen(train_data, BATCH_SIZE, my_image_augmentation())
+train_gen = make_train_gen(train_data, BATCH_SIZE, my_image_augmentation(), use_sampler=False)
 # trainX, trainY = next(iter(train_gen))
 
 # %% md
@@ -291,20 +294,28 @@ train_gen = make_train_gen(train_data, BATCH_SIZE, my_image_augmentation())
 class PneumoNet(nn.Module):
     def __init__(self, out_size):
         super(PneumoNet, self).__init__()
-        self.vgg16 = models.vgg16(pretrained=True)
-        for param in self.vgg16.parameters():
+        # self.vgg16 = models.vgg16(pretrained=True)
+        # for param in self.vgg16.parameters():
+        #     param.requires_grad = False
+        #
+        # num_features = self.vgg16.classifier[6].in_features
+        # features = list(self.vgg16.classifier.children())[:-1] # Remove last layer
+        # # #    The VGG-16 is able to classify 1000 different labels; we just need 2 instead. In order to do that we are going replace the last fully connected layer of the model with a new one with 4 output features instead of 1000.
+        # # #    In PyTorch, we can access the VGG-16 classifier with model.classifier, which is an 6-layer array. We will replace the last entry.
+        # features.extend([nn.Linear(num_features, out_size)])# add Linear layer
+        # self.vgg16.classifier = nn.Sequential(*features)
+
+        self.densenet121 = models.densenet121(pretrained=True)
+        for param in self.densenet121.parameters():
             param.requires_grad = False
 
-        num_features = self.vgg16.classifier[6].in_features
-        features = list(self.vgg16.classifier.children())[:-1] # Remove last layer
-        # #    The VGG-16 is able to classify 1000 different labels; we just need 2 instead. In order to do that we are going replace the last fully connected layer of the model with a new one with 4 output features instead of 1000.
-        # #    In PyTorch, we can access the VGG-16 classifier with model.classifier, which is an 6-layer array. We will replace the last entry.
-        features.extend([nn.Linear(num_features, out_size)])# add Linear layer
-        self.vgg16.classifier = nn.Sequential(*features)
+        num_features = self.densenet121.classifier.in_features
+
+        self.densenet121.classifier = nn.Linear(num_features, out_size, bias=True)
 
     def forward(self, x):
-        x = self.vgg16(x)
-        features = self.vgg16.classifier[6]
+        x = self.densenet121(x)
+        features = self.densenet121.classifier
         return x, features
 
 
@@ -318,8 +329,8 @@ criterion = nn.CrossEntropyLoss()
 #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
 #exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-optimizer = optim.Adam(model.parameters())
-exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 4)
+optimizer = optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.999))
+exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 10)
 # %%
 
 ## STAND-OUT Suggestion: choose another output layer besides just the last classification layer of your modele
@@ -362,7 +373,8 @@ def print_metrics(phase, batch_number, total_batches, loss, acc, auc, prcore, f1
     print("\r{} batch {}/{}; loss {:.4f}; acc {:.4f}; auc {:.4f}; prscore {:.4f}, f1score {:.4f}".format(phase, batch_number, total_batches,
                                                                                      loss, acc,
                                                                                      auc, prcore,
-                                                                                     f1score), end='', flush=True)
+                                                                                     f1score))
+
 
 def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10, patience=10):
 
@@ -410,6 +422,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         f1score_val = 0
         auc_val = 0
 
+        train_auc_count = 0
+
         vgg.train(True)
 
         for i, data in enumerate(train_gen):
@@ -419,9 +433,9 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 if i > 0:
                     avg_loss_aux = loss_train / (i+1)
                     avg_acc_aux = acc_train / (i+1)
-                    avg_auc_aux = auc_train / (i+1)
-                    avg_prscore_aux = prscore_train / (i + 1)
-                    avg_f1score_aux = f1score_train / (i + 1)
+                    avg_auc_aux = auc_train / train_auc_count
+                    avg_prscore_aux = prscore_train / train_auc_count
+                    avg_f1score_aux = f1score_train / train_auc_count
                     print_metrics('Train', i, train_batches_size, avg_loss_aux, avg_acc_aux, avg_auc_aux, avg_prscore_aux, avg_f1score_aux)
                     train_avg_loss_list.append(avg_loss_aux.cpu().detach().numpy())
                     train_avg_acc_list.append(avg_acc_aux.cpu().detach().numpy())
@@ -456,9 +470,14 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
             prob_cpu = softmax(outputs[0]).cpu().detach().numpy()
             prob_cpu = prob_cpu[:, 1]
             preds_cpu = preds.cpu().detach().numpy()
-            f1score_train += f1_score(labels_cpu, preds_cpu)
-            prscore_train += average_precision_score(labels_cpu, prob_cpu)
-            auc_train += roc_auc_score(labels_cpu, prob_cpu)
+
+
+            if (len(np.unique(labels_cpu)) > 1):
+                train_auc_count = train_auc_count + 1
+                f1score_train += f1_score(labels_cpu, preds_cpu)
+                prscore_train += average_precision_score(labels_cpu, prob_cpu)
+                auc_train += roc_auc_score(labels_cpu, prob_cpu)
+
 
             scheduler.step()
 
@@ -491,8 +510,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                         avg_loss_val_aux = loss_val / (i+1)
                         avg_acc_val_aux = acc_val / (i+1)
                         avg_auc_val_aux = auc_val / (val_auc_count)
-                        avg_prscore_val_aux = prscore_train / (i + 1)
-                        avg_f1score_val_aux = f1score_train / (i + 1)
+                        avg_prscore_val_aux = prscore_train / val_auc_count
+                        avg_f1score_val_aux = f1score_train / val_auc_count
                         print_metrics('Validation', i, val_batches_size, avg_loss_val_aux, avg_acc_val_aux, avg_auc_val_aux, avg_prscore_val_aux, avg_f1score_val_aux)
                         val_avg_loss_list.append(avg_loss_val_aux.cpu().detach().numpy())
                         val_avg_acc_list.append(avg_acc_val_aux.cpu().detach().numpy())
@@ -522,11 +541,12 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 prob_cpu = softmax(outputs[0]).cpu().detach().numpy()
                 prob_cpu = prob_cpu[:, 1]
                 preds_cpu = preds.cpu().detach().numpy()
-                prscore_val += average_precision_score(labels_cpu, prob_cpu)
+
                 if(len(np.unique(labels_cpu))>1):
                     val_auc_count = val_auc_count+1
                     auc_val += roc_auc_score(labels_cpu, prob_cpu)
-                f1score_val += f1_score(labels_cpu, preds_cpu)
+                    f1score_val += f1_score(labels_cpu, preds_cpu)
+                    prscore_val += average_precision_score(labels_cpu, prob_cpu)
 
             del inputs, labels, outputs, preds
             torch.cuda.empty_cache()
@@ -586,6 +606,6 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 ### Start training!
 
 vgg16, history = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=25)
-torch.save(vgg16.state_dict(), 'PneumoVGG16_weights_tests_imbalance.pt')
+torch.save(vgg16.state_dict(), 'PneumoDensenet121_weights_tests_imbalance.pt')
 history_df = pd.DataFrame(history)
-history_df.to_csv('PneumoVGG16_history_tests_imbalance.csv')
+history_df.to_csv('PneumoDensenet121_history_tests_imbalance.csv')
