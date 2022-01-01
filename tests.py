@@ -300,7 +300,6 @@ class PneumoNet(nn.Module):
         # #    The VGG-16 is able to classify 1000 different labels; we just need 2 instead. In order to do that we are going replace the last fully connected layer of the model with a new one with 4 output features instead of 1000.
         # #    In PyTorch, we can access the VGG-16 classifier with model.classifier, which is an 6-layer array. We will replace the last entry.
         features.extend([nn.Linear(num_features, out_size)])# add Linear layer
-        features.extend([nn.Softmax(dim=1)])  # add Softmax layer
         self.vgg16.classifier = nn.Sequential(*features)
 
     def forward(self, x):
@@ -315,7 +314,7 @@ model = PneumoNet(2).to(device)
 #                  (train_data['Pneumonia'] == 0).sum()/train_data['Pneumonia'].size]
 # class_weights = torch.tensor(class_weights, dtype=torch.float, device=device)
 # criterion = nn.CrossEntropyLoss(weight=class_weights)# this includes a LogSoftmax layer added after the Linear layer
-criterion = nn.NLLLoss()
+criterion = nn.CrossEntropyLoss()
 #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
 #exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
@@ -392,6 +391,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 
     patience_aux = 0
 
+    softmax = nn.Softmax(dim=1)
+
     for epoch in range(num_epochs):
 
         print("Epoch {}/{}".format(epoch, num_epochs))
@@ -452,7 +453,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
             acc_train += accuracy(preds, labels)
 
             labels_cpu = labels.cpu().detach().numpy()
-            prob_cpu = outputs[0].cpu().detach().numpy()
+            prob_cpu = softmax(outputs[0]).cpu().detach().numpy()
             prob_cpu = prob_cpu[:, 1]
             preds_cpu = preds.cpu().detach().numpy()
             f1score_train += f1_score(labels_cpu, preds_cpu)
@@ -518,12 +519,12 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 loss_val += loss
                 acc_val += accuracy(preds, labels)
                 labels_cpu = labels.cpu().detach().numpy()
-                prob_cpu = outputs[0].cpu().detach().numpy()
+                prob_cpu = softmax(outputs[0]).cpu().detach().numpy()
                 prob_cpu = prob_cpu[:, 1]
                 preds_cpu = preds.cpu().detach().numpy()
                 prscore_val += average_precision_score(labels_cpu, prob_cpu)
                 if(len(np.unique(labels_cpu))>1):
-                    val_auc_count=val_auc_count+1
+                    val_auc_count = val_auc_count+1
                     auc_val += roc_auc_score(labels_cpu, prob_cpu)
                 f1score_val += f1_score(labels_cpu, preds_cpu)
 
