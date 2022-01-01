@@ -118,8 +118,7 @@ xray_df, disease_labels = load_xray_data()
 ## Create your training and testing data:
 
 # %%
-
-def create_splits(df, val_prop,test_prop, class_name):
+def create_splits_test(df, val_prop, test_prop, class_name):
     ## Either build your own or use a built-in library to split your original dataframe into two sets
     ## that can be used for training and testing your model
     ## It's important to consider here how balanced or imbalanced you want each of those sets to be
@@ -141,15 +140,35 @@ def create_splits(df, val_prop,test_prop, class_name):
     return train_patient_df, validation_patient_df, test_patient_df
 
 
-train_data, val_data, test_data = create_splits(xray_df, 0.1, 0.1, 'Pneumonia')
+#train_data, val_data, test_data = create_splits_test(xray_df, 0.1, 0.1, 'Pneumonia')
+
+def create_splits(df, val_prop, class_name):
+    ## Either build your own or use a built-in library to split your original dataframe into two sets
+    ## that can be used for training and testing your model
+    ## It's important to consider here how balanced or imbalanced you want each of those sets to be
+    ## for the presence of pneumonia
+
+    # split data by patients:
+    patient_df = df.groupby(['Patient ID']).first()
+
+    train_patient_df, validation_patient_df = train_test_split(patient_df, stratify=patient_df[class_name],
+                                                         test_size=val_prop, random_state=0)
+
+    train_patient_df = df[df['Patient ID'].isin(train_patient_df.index.values)]
+    validation_patient_df = df[df['Patient ID'].isin(validation_patient_df.index.values)]
+
+    return train_patient_df, validation_patient_df
+
+
+train_data, val_data = create_splits(xray_df, 0.3, 'Pneumonia')
 
 print('train data, n = {}({}% of the data)'.format(len(train_data), round(len(train_data) / len(xray_df) * 100, 2)))
 print('validation, n = {}({}% of the data)'.format(len(val_data), round(len(val_data) / len(xray_df) * 100, 2)))
-print('test, n = {}({}% of the data)'.format(len(test_data), round(len(test_data) / len(xray_df) * 100, 2)))
+#print('test, n = {}({}% of the data)'.format(len(test_data), round(len(test_data) / len(xray_df) * 100, 2)))
 
 print('prop. pneumonia train data: ' + str(round(train_data['Pneumonia'].sum() / len(train_data), 4)))
 print('prop. pneumonia validation data: ' + str(round(val_data['Pneumonia'].sum() / len(val_data), 4)))
-print('prop. pneumonia test data: ' + str(round(test_data['Pneumonia'].sum() / len(test_data), 4)))
+#print('prop. pneumonia test data: ' + str(round(test_data['Pneumonia'].sum() / len(test_data), 4)))
 
 
 # %% md
@@ -473,7 +492,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 inputs, labels = data
                 inputs = inputs.to(device)
                 labels = labels.to(device)
-                #print("\rValidation class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
+                print("\rValidation class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
 
                 optimizer.zero_grad()
 
@@ -535,6 +554,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 
     vgg.load_state_dict(best_model_wts)
 
+    history_aux['epoch'] = epoch_list
+    history_aux['iteration'] = iteration_list
     history_aux['train_avg_loss'] = train_avg_loss_list
     history_aux['train_avg_acc']  = train_avg_acc_list
     history_aux['val_avg_loss']   = val_avg_loss_list
