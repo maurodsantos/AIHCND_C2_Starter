@@ -41,7 +41,7 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
-BATCH_SIZE = 20
+BATCH_SIZE = 64
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -239,9 +239,9 @@ def make_train_gen(trainset, batch_size, transformations):
     train_gen = ImageDataset(trainset, transformations)
 
     #class_weights = [train_data['Pneumonia'].size/(train_data['Pneumonia'] == 0).sum(),train_data['Pneumonia'].size/train_data['Pneumonia'].sum()]
-    class_sample_count = np.unique(train_data['Pneumonia'].values, return_counts=True)[1]
+    class_sample_count = np.unique(trainset['Pneumonia'].values, return_counts=True)[1]
     weight = 1. / class_sample_count
-    samples_weight = weight[train_data['Pneumonia'].values]
+    samples_weight = weight[trainset['Pneumonia'].values]
     samples_weight = torch.from_numpy(samples_weight)
 
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
@@ -264,7 +264,13 @@ def make_val_gen(valset, batch_size):
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
     val_gen = ImageDataset(valset, transformations)
-    valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False)
+
+    class_sample_count = np.unique(valset['Pneumonia'].values, return_counts=True)[1]
+    weight = 1. / class_sample_count
+    samples_weight = weight[valset['Pneumonia'].values]
+    samples_weight = torch.from_numpy(samples_weight)
+    sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
+    valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False, sampler=sampler)
 
     return valloader
 
