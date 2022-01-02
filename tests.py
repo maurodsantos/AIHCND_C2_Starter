@@ -41,13 +41,13 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
-BATCH_SIZE = 64
+BATCH_SIZE = 20
 NUM_EPOCHS = 30
 LOG_SIZE = 50
 EXP_NAME = 'tests_imbalance'
 TL_MODEL = 'densenet121'
 MODEL_NAME = 'PneumoNet'
-BALANCE_TRAINING = False
+BALANCE_TRAINING = True
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -235,7 +235,7 @@ def my_image_augmentation():
     return transformations
 
 
-def make_train_gen(trainset, batch_size, transformations, use_sampler=BALANCE_TRAINING):
+def make_train_gen(trainset, batch_size, transformations, use_sampler=False):
     ## Create the actual generators using the output of my_image_augmentation for your training data
     ## Suggestion here to use the flow_from_dataframe library, e.g.:
 
@@ -262,7 +262,7 @@ def make_train_gen(trainset, batch_size, transformations, use_sampler=BALANCE_TR
     return trainloader
 
 
-def make_val_gen(valset, batch_size, use_sampler=BALANCE_TRAINING, shuffle=True):
+def make_val_gen(valset, batch_size, use_sampler=False, shuffle=True):
     #     val_gen = my_val_idg.flow_from_dataframe(dataframe = val_data,
     #                                              directory=None,
     #                                              x_col = ,
@@ -292,10 +292,10 @@ def make_val_gen(valset, batch_size, use_sampler=BALANCE_TRAINING, shuffle=True)
 
 # %%
 ## May want to pull a single large batch of random validation data for testing after each epoch:
-val_gen = make_val_gen(val_data, BATCH_SIZE, use_sampler=False)
+val_gen = make_val_gen(val_data, BATCH_SIZE, use_sampler=BALANCE_TRAINING)
 # valX, valY = next(iter(val_gen))
 # %%
-train_gen = make_train_gen(train_data, BATCH_SIZE, my_image_augmentation(), use_sampler=False)
+train_gen = make_train_gen(train_data, BATCH_SIZE, my_image_augmentation(), use_sampler=BALANCE_TRAINING)
 # trainX, trainY = next(iter(train_gen))
 
 # %% md
@@ -342,7 +342,10 @@ criterion = nn.CrossEntropyLoss()
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
 #
 #optimizer = optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.999))
-optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+if BALANCE_TRAINING:
+    optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.9)
+else:
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
 # %%
