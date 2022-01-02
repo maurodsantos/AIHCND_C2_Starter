@@ -4,3 +4,6 @@ data/*
 PneumoVGG16*
 my_model*
 PneumoDensenet*
+PneumoNet*
+server3/*
+server4/*

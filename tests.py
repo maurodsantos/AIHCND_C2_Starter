@@ -23,7 +23,7 @@ import copy
 ##Import any other stats/DL/ML packages you may need here. E.g. Keras, scikit-learn, etc.
 from itertools import chain
 
-from sklearn.metrics import average_precision_score, roc_auc_score, f1_score
+from sklearn.metrics import average_precision_score, roc_auc_score, f1_score, precision_recall_curve, auc
 from sklearn.model_selection import train_test_split
 from PIL import Image
 
@@ -41,8 +41,13 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
-BATCH_SIZE = 16
+BATCH_SIZE = 64
 NUM_EPOCHS = 30
+LOG_SIZE = 50
+EXP_NAME = 'tests_imbalance'
+TL_MODEL = 'densenet121'
+MODEL_NAME = 'PneumoNet'
+BALANCE_TRAINING = False
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -55,8 +60,10 @@ print("Torchvision Version: ", torchvision.__version__)
 if( torch.cuda.device_count()>1):
     print("torch.cuda.device(1)", torch.cuda.device(1))
     print("torch.cuda.get_device_name(1)", torch.cuda.get_device_name(1))
+else:
+    print("only 1 cuda enabled device")
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # %% md
 
@@ -228,7 +235,7 @@ def my_image_augmentation():
     return transformations
 
 
-def make_train_gen(trainset, batch_size, transformations, use_sampler=False):
+def make_train_gen(trainset, batch_size, transformations, use_sampler=BALANCE_TRAINING):
     ## Create the actual generators using the output of my_image_augmentation for your training data
     ## Suggestion here to use the flow_from_dataframe library, e.g.:
 
@@ -255,7 +262,7 @@ def make_train_gen(trainset, batch_size, transformations, use_sampler=False):
     return trainloader
 
 
-def make_val_gen(valset, batch_size,use_sampler=False):
+def make_val_gen(valset, batch_size, use_sampler=BALANCE_TRAINING, shuffle=True):
     #     val_gen = my_val_idg.flow_from_dataframe(dataframe = val_data,
     #                                              directory=None,
     #                                              x_col = ,
@@ -265,6 +272,7 @@ def make_val_gen(valset, batch_size,use_sampler=False):
     #                                              batch_size = )
 
     transformations = transforms.Compose([
+        transforms.Resize(256),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
@@ -277,7 +285,7 @@ def make_val_gen(valset, batch_size,use_sampler=False):
         sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
         valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False, sampler=sampler)
     else:
-        valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False)
+        valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=shuffle)
 
     return valloader
 
@@ -330,11 +338,13 @@ model = PneumoNet(2).to(device)
 # class_weights = torch.tensor(class_weights, dtype=torch.float, device=device)
 # criterion = nn.CrossEntropyLoss(weight=class_weights)# this includes a LogSoftmax layer added after the Linear layer
 criterion = nn.CrossEntropyLoss()
-#optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+#
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
-#exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-optimizer = optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.999))
-exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 10)
+#
+#optimizer = optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.999))
+optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+
 # %%
 
 ## STAND-OUT Suggestion: choose another output layer besides just the last classification layer of your modele
@@ -373,18 +383,18 @@ def accuracy(preds, labels):
     return torch.tensor(torch.sum(preds == labels).item() / len(preds))
 
 
-def print_metrics(phase, batch_number, total_batches, loss, acc, auc, prcore, f1score):
-    print("\r{} batch {}/{}; loss {:.4f}; acc {:.4f}; auc {:.4f}; prscore {:.4f}, f1score {:.4f}".format(phase, batch_number, total_batches,
+def print_metrics(phase, batch_number, total_batches, loss, acc, auc, prauc, f1score):
+    print("\r{} batch {}/{}; loss {:.4f}; acc {:.4f}; auc {:.4f}; prauc {:.4f}, f1score {:.4f}".format(phase, batch_number, total_batches,
                                                                                      loss, acc,
-                                                                                     auc, prcore,
+                                                                                     auc, prauc,
                                                                                      f1score))
 
 
-def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10, patience=10):
+def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epochs=10, log_size=100, patience=10):
 
 
     since = time.time()
-    best_model_wts = copy.deepcopy(vgg.state_dict())
+    best_model_wts = copy.deepcopy(dnn_model.state_dict())
     best_acc = 0.0
 
     val_epoch_list = []
@@ -395,22 +405,20 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
     train_avg_loss_list = []
     train_avg_acc_list = []
     train_avg_auc_list = []
-    train_avg_prscore_list = []
+    train_avg_prauc_list = []
     train_avg_f1score_list = []
 
     val_avg_loss_list = []
     val_avg_acc_list = []
     val_avg_auc_list = []
-    val_avg_prscore_list = []
+    val_avg_prauc_list = []
     val_avg_f1score_list = []
 
     train_batches_size = len(train_gen)
     val_batches_size = len(val_gen)
 
     patience_aux = 0
-
     softmax = nn.Softmax(dim=1)
-
     for epoch in range(num_epochs):
 
         print("Epoch {}/{}".format(epoch, num_epochs))
@@ -418,34 +426,27 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 
         loss_train = 0
         acc_train = 0
-        prscore_train = 0
+        prauc_train = 0
         f1score_train = 0
         auc_train = 0
-
-        loss_val = 0
-        acc_val = 0
-        prscore_val = 0
-        f1score_val = 0
-        auc_val = 0
-
         train_auc_count = 0
 
-        vgg.train(True)
+        dnn_model.train(True)
 
         for i, data in enumerate(train_gen):
 
-            if i % 100 == 0:
+            if i % log_size == 0:
 
                 if i > 0:
                     avg_loss_aux = loss_train / (i+1)
                     avg_acc_aux = acc_train / (i+1)
                     avg_auc_aux = auc_train / train_auc_count
-                    avg_prscore_aux = prscore_train / train_auc_count
+                    avg_prauc_aux = prauc_train / train_auc_count
                     avg_f1score_aux = f1score_train / train_auc_count
-                    print_metrics('Train', i, train_batches_size, avg_loss_aux, avg_acc_aux, avg_auc_aux, avg_prscore_aux, avg_f1score_aux)
-                    train_avg_loss_list.append(avg_loss_aux.cpu().detach().numpy())
+                    print_metrics('Train', i, train_batches_size, avg_loss_aux, avg_acc_aux, avg_auc_aux, avg_prauc_aux, avg_f1score_aux)
+                    train_avg_loss_list.append(avg_loss_aux)
                     train_avg_acc_list.append(avg_acc_aux.cpu().detach().numpy())
-                    train_avg_prscore_list.append(avg_prscore_aux)
+                    train_avg_prauc_list.append(avg_prauc_aux)
                     train_avg_f1score_list.append(avg_f1score_aux)
                     train_avg_auc_list.append(avg_auc_aux)
                     train_epoch_list.append(epoch)
@@ -461,7 +462,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
             #print("\rTrain class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
             optimizer.zero_grad()
 
-            outputs = vgg(inputs)
+            outputs = dnn_model(inputs)
 
             _, preds = torch.max(outputs[0], 1)
             loss = model_criterion(outputs[0], labels)
@@ -469,7 +470,7 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
             loss.backward()
             model_optimizer.step()
 
-            loss_train += loss
+            loss_train += loss.item()
             acc_train += accuracy(preds, labels)
 
             labels_cpu = labels.cpu().detach().numpy()
@@ -481,7 +482,9 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
             if (len(np.unique(labels_cpu)) > 1):
                 train_auc_count = train_auc_count + 1
                 f1score_train += f1_score(labels_cpu, preds_cpu)
-                prscore_train += average_precision_score(labels_cpu, prob_cpu)
+                # calculate the precision-recall auc
+                precision, recall, _ = precision_recall_curve(labels_cpu, prob_cpu)
+                prauc_train += auc(recall, precision)
                 auc_train += roc_auc_score(labels_cpu, prob_cpu)
 
 
@@ -492,35 +495,41 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
 
         train_avg_loss = loss_train / train_batches_size
         train_avg_acc = acc_train / train_batches_size
-        train_avg_auc = auc_train / train_batches_size
-        train_avg_prscore = prscore_train / train_batches_size
-        train_avg_f1score = f1score_train / train_batches_size
+        train_avg_auc = auc_train / train_auc_count
+        train_avg_prauc = prauc_train / train_auc_count
+        train_avg_f1score = f1score_train / train_auc_count
 
-        train_avg_loss_list.append(train_avg_loss.cpu().detach().numpy())
+        train_avg_loss_list.append(train_avg_loss)
         train_avg_acc_list.append(train_avg_acc.cpu().detach().numpy())
-        train_avg_prscore_list.append(train_avg_prscore)
+        train_avg_prauc_list.append(train_avg_prauc)
         train_avg_f1score_list.append(train_avg_f1score)
         train_avg_auc_list.append(train_avg_auc)
         train_epoch_list.append(epoch)
         train_iteration_list.append(i)
-        vgg.train(False)
-        vgg.eval()
 
+        # validation phase
+        dnn_model.train(False)
+        dnn_model.eval()
+        loss_val = 0
+        acc_val = 0
+        prauc_val = 0
+        f1score_val = 0
+        auc_val = 0
         val_auc_count = 0
 
         with torch.no_grad():
             for i, data in enumerate(val_gen):
-                if i % 100 == 0:
+                if i % log_size == 0:
                     if i > 0:
                         avg_loss_val_aux = loss_val / (i+1)
                         avg_acc_val_aux = acc_val / (i+1)
                         avg_auc_val_aux = auc_val / (val_auc_count)
-                        avg_prscore_val_aux = prscore_train / val_auc_count
+                        avg_prauc_val_aux = prauc_val / val_auc_count
                         avg_f1score_val_aux = f1score_train / val_auc_count
-                        print_metrics('Validation', i, val_batches_size, avg_loss_val_aux, avg_acc_val_aux, avg_auc_val_aux, avg_prscore_val_aux, avg_f1score_val_aux)
-                        val_avg_loss_list.append(avg_loss_val_aux.cpu().detach().numpy())
+                        print_metrics('Validation', i, val_batches_size, avg_loss_val_aux, avg_acc_val_aux, avg_auc_val_aux, avg_prauc_val_aux, avg_f1score_val_aux)
+                        val_avg_loss_list.append(avg_loss_val_aux)
                         val_avg_acc_list.append(avg_acc_val_aux.cpu().detach().numpy())
-                        val_avg_prscore_list.append(avg_prscore_val_aux)
+                        val_avg_prauc_list.append(avg_prauc_val_aux)
                         val_avg_f1score_list.append(avg_f1score_val_aux)
                         val_avg_auc_list.append(avg_f1score_val_aux)
                         val_epoch_list.append(epoch)
@@ -531,16 +540,16 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                 inputs, labels = data
                 inputs = inputs.to(device)
                 labels = labels.to(device)
-                print("\rValidation class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
+                #print("\rValidation class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
 
                 optimizer.zero_grad()
 
-                outputs = vgg(inputs)
+                outputs = dnn_model(inputs)
 
                 _, preds = torch.max(outputs[0], 1)
                 loss = criterion(outputs[0], labels)
 
-                loss_val += loss
+                loss_val += loss.item()
                 acc_val += accuracy(preds, labels)
                 labels_cpu = labels.cpu().detach().numpy()
                 prob_cpu = softmax(outputs[0]).cpu().detach().numpy()
@@ -551,7 +560,8 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
                     val_auc_count = val_auc_count+1
                     auc_val += roc_auc_score(labels_cpu, prob_cpu)
                     f1score_val += f1_score(labels_cpu, preds_cpu)
-                    prscore_val += average_precision_score(labels_cpu, prob_cpu)
+                    precision, recall, _ = precision_recall_curve(labels_cpu, prob_cpu)
+                    prauc_val += auc(recall, precision)
 
             del inputs, labels, outputs, preds
             torch.cuda.empty_cache()
@@ -559,29 +569,29 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
         val_avg_loss = loss_val / val_batches_size
         val_avg_acc = acc_val / val_batches_size
         val_avg_auc = auc_val / val_auc_count
-        val_avg_prscore = prscore_val / val_batches_size
-        val_avg_f1score = f1score_val / val_batches_size
+        val_avg_prauc = prauc_val / val_auc_count
+        val_avg_f1score = f1score_val / val_auc_count
 
 
-        val_avg_loss_list.append(val_avg_loss.cpu().detach().numpy())
+        val_avg_loss_list.append(val_avg_loss)
         val_avg_acc_list.append(val_avg_acc.cpu().detach().numpy())
-        val_avg_prscore_list.append(val_avg_prscore)
+        val_avg_prauc_list.append(val_avg_prauc)
         val_avg_f1score_list.append(val_avg_f1score)
         val_avg_auc_list.append(val_avg_auc)
         val_epoch_list.append(epoch)
         val_iteration_list.append(i)
 
-        print("\rEpoch {}, Training loss/acc/auc/prscore/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}; "
-              "Validation loss/acc/auc/prscore/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}".
-              format(epoch, train_avg_loss, train_avg_acc, train_avg_auc, train_avg_prscore, train_avg_f1score,
-                     val_avg_loss, val_avg_acc, val_avg_auc, val_avg_prscore, val_avg_f1score))
+        print("\rEpoch {}, Training loss/acc/auc/prauc/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}; "
+              "Validation loss/acc/auc/prauc/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}".
+              format(epoch, train_avg_loss, train_avg_acc, train_avg_auc, train_avg_prauc, train_avg_f1score,
+                     val_avg_loss, val_avg_acc, val_avg_auc, val_avg_prauc, val_avg_f1score))
 
         if val_avg_acc > best_acc:
             print("val_binary_accuracy improved from {}".format(best_acc))
             print('-' * 40)
             best_acc = val_avg_acc
-            best_model_wts = copy.deepcopy(vgg.state_dict())
-            torch.save(vgg.state_dict(), 'PneumoVGG16_weights_checkpoint.pt')
+            best_model_wts = copy.deepcopy(dnn_model.state_dict())
+            torch.save(dnn_model.state_dict(), '{}_{}_weights_checkpoint_{}_{}_{}.h5'.format(MODEL_NAME,TL_MODEL,EXP_NAME,BATCH_SIZE, epoch))
 
         else:
             patience_aux = patience_aux+1
@@ -594,36 +604,36 @@ def train_model(vgg, model_criterion, model_optimizer, scheduler, num_epochs=10,
     print("Training completed in {:.0f}m {:.0f}s".format(elapsed_time // 60, elapsed_time % 60))
     print("Best acc: {:.4f}".format(best_acc))
 
-    vgg.load_state_dict(best_model_wts)
-
-    history_val = {}
-    history_val['epoch'] = train_epoch_list
-    history_val['iteration'] = train_iteration_list
-    history_val['avg_loss'] = train_avg_loss_list
-    history_val['avg_acc']  = train_avg_acc_list
-    history_val['avg_auc'] = train_avg_auc_list
-    history_val['avg_prscore'] = train_avg_prscore_list
-    history_val['avg_f1score'] = train_avg_f1score_list
+    dnn_model.load_state_dict(best_model_wts)
 
     history_train = {}
     history_train['epoch'] = train_epoch_list
     history_train['iteration'] = train_iteration_list
-    history_train['avg_loss']   = val_avg_loss_list
-    history_train['avg_acc']    = val_avg_acc_list
-    history_train['avg_auc'] = val_avg_auc_list
-    history_train['avg_prscore'] = val_avg_prscore_list
-    history_train['avg_f1score'] = val_avg_f1score_list
+    history_train['avg_loss'] = train_avg_loss_list
+    history_train['avg_acc']  = train_avg_acc_list
+    history_train['avg_auc'] = train_avg_auc_list
+    history_train['avg_prauc'] = train_avg_prauc_list
+    history_train['avg_f1score'] = train_avg_f1score_list
 
-    return vgg, history_train, history_val
+    history_val = {}
+    history_val['epoch'] = val_epoch_list
+    history_val['iteration'] = val_iteration_list
+    history_val['avg_loss']   = val_avg_loss_list
+    history_val['avg_acc']    = val_avg_acc_list
+    history_val['avg_auc'] = val_avg_auc_list
+    history_val['avg_prauc'] = val_avg_prauc_list
+    history_val['avg_f1score'] = val_avg_f1score_list
+
+    return dnn_model, history_train, history_val
 
 
 # %% md
 
 ### Start training!
 
-vgg16, history_train, history_val = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=NUM_EPOCHS)
-torch.save(vgg16.state_dict(), 'PneumoDensenet121_weights_tests_imbalance_{}_{}.pt'.format(BATCH_SIZE,NUM_EPOCHS))
+final_model, history_train, history_val = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=NUM_EPOCHS, log_size=LOG_SIZE)
+torch.save(final_model.state_dict(), '{}_{}_weights_{}_{}_{}.h5'.format(MODEL_NAME,TL_MODEL,EXP_NAME,BATCH_SIZE, NUM_EPOCHS))
 history_val_df = pd.DataFrame(history_val)
-history_val_df.to_csv('PneumoDensenet121_history_val_tests_imbalance_{}_{}.csv'.format(BATCH_SIZE,NUM_EPOCHS))
+history_val_df.to_csv('{}_{}_history_val_{}_{}_{}.csv'.format(MODEL_NAME,TL_MODEL,EXP_NAME,BATCH_SIZE, NUM_EPOCHS))
 history_train_df = pd.DataFrame(history_train)
-history_train_df.to_csv('PneumoDensenet121_history_train_tests_imbalance_{}_{}.csv'.format(BATCH_SIZE,NUM_EPOCHS))
+history_train_df.to_csv('{}_{}_history_train_{}_{}_{}.csv'.format(MODEL_NAME,TL_MODEL,EXP_NAME,BATCH_SIZE, NUM_EPOCHS))
