@@ -597,8 +597,8 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
             patience_aux = patience_aux+1
             print("val_binary_accuracy did not improve from {}".format(best_acc))
             print('-' * 40)
-            # if patience_aux > patience:
-            #     break
+            if patience_aux > patience:
+                break
 
     elapsed_time = time.time() - since
     print("Training completed in {:.0f}m {:.0f}s".format(elapsed_time // 60, elapsed_time % 60))
@@ -631,7 +631,7 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
 
 ### Start training!
 
-final_model, history_train, history_val = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=NUM_EPOCHS, log_size=LOG_SIZE)
+final_model, history_train, history_val = train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=NUM_EPOCHS, log_size=LOG_SIZE,patience=5)
 torch.save(final_model.state_dict(), '{}_{}_weights_{}_{}_{}.h5'.format(MODEL_NAME,TL_MODEL,EXP_NAME,BATCH_SIZE, NUM_EPOCHS))
 history_val_df = pd.DataFrame(history_val)
 history_val_df.to_csv('{}_{}_history_val_{}_{}_{}.csv'.format(MODEL_NAME,TL_MODEL,EXP_NAME,BATCH_SIZE, NUM_EPOCHS))
