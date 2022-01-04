@@ -41,7 +41,7 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
-BATCH_SIZE = 20
+BATCH_SIZE = 64
 NUM_EPOCHS = 30
 LOG_SIZE = 50
 EXP_NAME = 'tests_balance'
@@ -361,9 +361,9 @@ criterion = nn.BCEWithLogitsLoss()
 if BALANCE_TRAINING:
     optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.9)
 else:
-    optimizer = optim.RMSprop(model.parameters(), lr=0.0001)
+    optimizer = optim.RMSprop(model.parameters(), lr=0.001)
     #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=2, gamma=np.exp(-0.1))
 
 # %%
 
