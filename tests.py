@@ -32,7 +32,6 @@ import torch
 import torch.optim as optim
 from torch.optim import lr_scheduler
 import torch.nn as nn
-from torch.autograd import Variable
 import torchvision
 from torchvision import models
 import torchvision.transforms as transforms
@@ -41,13 +40,13 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
-BATCH_SIZE = 256
+BATCH_SIZE = 20
 NUM_EPOCHS = 30
 LOG_SIZE = 50
-EXP_NAME = 'tests_balance'
+EXP_NAME = 'tests_imbalance'
 TL_MODEL = 'resnet50_v2'
 MODEL_NAME = 'PneumoNet'
-BALANCE_TRAINING = True
+BALANCE_TRAINING = False
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -156,7 +155,7 @@ def create_splits_test(df, val_prop, test_prop, class_name, balanced=True):
     return train_patient_df, validation_patient_df, test_patient_df
 
 
-train_data, val_data, test_data = create_splits_test(xray_df, 0.2, 0.1, 'Pneumonia')
+train_data, val_data, test_data = create_splits_test(xray_df, 0.2, 0.1, 'Pneumonia',balanced=BALANCE_TRAINING)
 
 
 def create_splits(df, val_prop, class_name):
