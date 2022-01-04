@@ -47,7 +47,7 @@ LOG_SIZE = 50
 EXP_NAME = 'tests_imbalance'
 TL_MODEL = 'densenet121'
 MODEL_NAME = 'PneumoNet'
-BALANCE_TRAINING = True
+BALANCE_TRAINING = False
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -129,6 +129,7 @@ xray_df, disease_labels = load_xray_data()
 ## Create your training and testing data:
 
 # %%
+
 def create_splits_test(df, val_prop, test_prop, class_name):
     ## Either build your own or use a built-in library to split your original dataframe into two sets
     ## that can be used for training and testing your model
@@ -145,13 +146,18 @@ def create_splits_test(df, val_prop, test_prop, class_name):
                                                          test_size=val_prop, random_state=0)
 
     train_patient_df = df[df['Patient ID'].isin(train_patient_df.index.values)]
+
+    train_patient_df = train_patient_df.groupby(class_name).apply(lambda data: data.sample(n=len(train_patient_df) // 2, replace=True))
+
     validation_patient_df = df[df['Patient ID'].isin(validation_patient_df.index.values)]
+
     test_patient_df = df[df['Patient ID'].isin(test_patient_df.index.values)]
 
     return train_patient_df, validation_patient_df, test_patient_df
 
 
-train_data, val_data, test_data = create_splits_test(xray_df, 0.07, 0.013, 'Pneumonia')
+train_data, val_data, test_data = create_splits_test(xray_df, 0.2, 0.1, 'Pneumonia')
+
 
 def create_splits(df, val_prop, class_name):
     ## Either build your own or use a built-in library to split your original dataframe into two sets
@@ -300,44 +306,54 @@ train_gen = make_train_gen(train_data, BATCH_SIZE, my_image_augmentation(), use_
 
 # %% md
 ## Build your model:
+def load_pretrained_model():
+    # model = VGG16(include_top=True, weights='imagenet')
+    # transfer_layer = model.get_layer(lay_of_interest)
+    # vgg_model = Model(inputs = model.input, outputs = transfer_layer.output)
 
+    # Todo
+    model = models.wide_resnet50_2(pretrained=True)
+    for param in model.parameters():
+        param.requires_grad = False
+    return model
 # %%
 
 class PneumoNet(nn.Module):
     def __init__(self, out_size):
         super(PneumoNet, self).__init__()
-        # self.vgg16 = models.vgg16(pretrained=True)
-        # for param in self.vgg16.parameters():
-        #     param.requires_grad = False
-        #
-        # num_features = self.vgg16.classifier[6].in_features
-        # features = list(self.vgg16.classifier.children())[:-1] # Remove last layer
-        # # #    The VGG-16 is able to classify 1000 different labels; we just need 2 instead. In order to do that we are going replace the last fully connected layer of the model with a new one with 4 output features instead of 1000.
-        # # #    In PyTorch, we can access the VGG-16 classifier with model.classifier, which is an 6-layer array. We will replace the last entry.
-        # features.extend([nn.Linear(num_features, out_size)])# add Linear layer
-        # self.vgg16.classifier = nn.Sequential(*features)
+        self.model = load_pretrained_model()
 
-        self.densenet121 = models.densenet121(pretrained=True)
-        for param in self.densenet121.parameters():
-            param.requires_grad = False
-
-        num_features = self.densenet121.classifier.in_features
-
-        self.densenet121.classifier = nn.Linear(num_features, out_size, bias=True)
+        num_features = self.model.fc.in_features
+        self.model.fc = nn.Sequential(
+                      nn.BatchNorm1d(num_features),
+                      nn.Linear(num_features, 256),
+                      nn.ReLU(),
+                      nn.Dropout(0.5),
+                      nn.Linear(256, out_size))
 
     def forward(self, x):
-        x = self.densenet121(x)
-        features = self.densenet121.classifier
-        return x, features
+        x = self.model(x)
+        return x
 
 
-model = PneumoNet(2).to(device)
+def build_my_model():
+    # ....add your pre-trained model, and then whatever additional layers you think you might
+    # want for fine-tuning (Flatteen, Dense, Dropout, etc.)
+
+    # if you want to compile your model within this function, consider which layers of your pre-trained model,
+    # you want to freeze before you compile
+
+    # also make sure you set your optimizer, loss function, and metrics to monitor
+
+    return PneumoNet(1).to(device)
+
+model = build_my_model()
 ## give different weights to each class, up-weighting the minor class such that it balances the numbers in the majors class
 # class_weights = [train_data['Pneumonia'].sum()/train_data['Pneumonia'].size,
 #                  (train_data['Pneumonia'] == 0).sum()/train_data['Pneumonia'].size]
 # class_weights = torch.tensor(class_weights, dtype=torch.float, device=device)
 # criterion = nn.CrossEntropyLoss(weight=class_weights)# this includes a LogSoftmax layer added after the Linear layer
-criterion = nn.CrossEntropyLoss()
+criterion = nn.BCEWithLogitsLoss()
 #
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
 #
@@ -345,7 +361,8 @@ criterion = nn.CrossEntropyLoss()
 if BALANCE_TRAINING:
     optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.9)
 else:
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    optimizer = optim.RMSprop(model.parameters(), lr=0.0001)
+    #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
 # %%
@@ -383,7 +400,7 @@ exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
 def accuracy(preds, labels):
     # _, preds = torch.max(outputs, dim=1)
-    return torch.tensor(torch.sum(preds == labels).item() / len(preds))
+    return np.sum(preds == labels) / len(preds)
 
 
 def print_metrics(phase, batch_number, total_batches, loss, acc, auc, prauc, f1score):
@@ -402,8 +419,10 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
 
     val_epoch_list = []
     val_iteration_list = []
+    val_iteration_acc_list = []
     train_epoch_list = []
     train_iteration_list = []
+    train_iteration_acc_list = []
 
     train_avg_loss_list = []
     train_avg_acc_list = []
@@ -448,12 +467,13 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
                     avg_f1score_aux = f1score_train / train_auc_count
                     print_metrics('Train', i, train_batches_size, avg_loss_aux, avg_acc_aux, avg_auc_aux, avg_prauc_aux, avg_f1score_aux)
                     train_avg_loss_list.append(avg_loss_aux)
-                    train_avg_acc_list.append(avg_acc_aux.cpu().detach().numpy())
+                    train_avg_acc_list.append(avg_acc_aux)
                     train_avg_prauc_list.append(avg_prauc_aux)
                     train_avg_f1score_list.append(avg_f1score_aux)
                     train_avg_auc_list.append(avg_auc_aux)
                     train_epoch_list.append(epoch)
                     train_iteration_list.append(i)
+                    train_iteration_acc_list.append(epoch*train_batches_size+i)
 
             # Use half training dataset
             # if i >= 101:
@@ -462,25 +482,19 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
             inputs, labels = data
             inputs = inputs.to(device)
             labels = labels.to(device)
+            labels = labels.float()
             #print("\rTrain class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
             optimizer.zero_grad()
-
             outputs = dnn_model(inputs)
-
-            _, preds = torch.max(outputs[0], 1)
-            loss = model_criterion(outputs[0], labels)
-
+            loss = model_criterion(outputs, labels.unsqueeze(1))
             loss.backward()
             model_optimizer.step()
 
             loss_train += loss.item()
-            acc_train += accuracy(preds, labels)
-
             labels_cpu = labels.cpu().detach().numpy()
-            prob_cpu = softmax(outputs[0]).cpu().detach().numpy()
-            prob_cpu = prob_cpu[:, 1]
-            preds_cpu = preds.cpu().detach().numpy()
-
+            prob_cpu = torch.sigmoid(outputs).cpu().detach().numpy()
+            preds_cpu = np.round(prob_cpu.reshape(-1))
+            acc_train += accuracy(preds_cpu, labels_cpu)
 
             if (len(np.unique(labels_cpu)) > 1):
                 train_auc_count = train_auc_count + 1
@@ -490,10 +504,9 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
                 prauc_train += auc(recall, precision)
                 auc_train += roc_auc_score(labels_cpu, prob_cpu)
 
-
             scheduler.step()
 
-        del inputs, labels, outputs, preds
+        del inputs, labels, outputs
         torch.cuda.empty_cache()
 
         train_avg_loss = loss_train / train_batches_size
@@ -503,13 +516,13 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
         train_avg_f1score = f1score_train / train_auc_count
 
         train_avg_loss_list.append(train_avg_loss)
-        train_avg_acc_list.append(train_avg_acc.cpu().detach().numpy())
+        train_avg_acc_list.append(train_avg_acc)
         train_avg_prauc_list.append(train_avg_prauc)
         train_avg_f1score_list.append(train_avg_f1score)
         train_avg_auc_list.append(train_avg_auc)
         train_epoch_list.append(epoch)
         train_iteration_list.append(i)
-
+        train_iteration_acc_list.append(epoch * train_batches_size + i)
         # validation phase
         dnn_model.train(False)
         dnn_model.eval()
@@ -530,34 +543,33 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
                         avg_prauc_val_aux = prauc_val / val_auc_count
                         avg_f1score_val_aux = f1score_train / val_auc_count
                         print_metrics('Validation', i, val_batches_size, avg_loss_val_aux, avg_acc_val_aux, avg_auc_val_aux, avg_prauc_val_aux, avg_f1score_val_aux)
+
                         val_avg_loss_list.append(avg_loss_val_aux)
-                        val_avg_acc_list.append(avg_acc_val_aux.cpu().detach().numpy())
+                        val_avg_acc_list.append(avg_acc_val_aux)
                         val_avg_prauc_list.append(avg_prauc_val_aux)
                         val_avg_f1score_list.append(avg_f1score_val_aux)
                         val_avg_auc_list.append(avg_f1score_val_aux)
                         val_epoch_list.append(epoch)
                         val_iteration_list.append(i)
+                        val_iteration_acc_list.append(epoch * val_batches_size + i)
                 # if i >= 101:
                 #     break
 
                 inputs, labels = data
                 inputs = inputs.to(device)
                 labels = labels.to(device)
+                labels = labels.float()
                 #print("\rValidation class0 {}; class1 {} ".format(sum(labels == 0), sum(labels)))
 
                 optimizer.zero_grad()
-
                 outputs = dnn_model(inputs)
-
-                _, preds = torch.max(outputs[0], 1)
-                loss = criterion(outputs[0], labels)
+                loss = criterion(outputs, labels.unsqueeze(1))
 
                 loss_val += loss.item()
-                acc_val += accuracy(preds, labels)
                 labels_cpu = labels.cpu().detach().numpy()
-                prob_cpu = softmax(outputs[0]).cpu().detach().numpy()
-                prob_cpu = prob_cpu[:, 1]
-                preds_cpu = preds.cpu().detach().numpy()
+                prob_cpu = torch.sigmoid(outputs).cpu().detach().numpy()
+                preds_cpu = np.round(prob_cpu.reshape(-1))
+                acc_val += accuracy(preds_cpu, labels_cpu)
 
                 if(len(np.unique(labels_cpu))>1):
                     val_auc_count = val_auc_count+1
@@ -566,7 +578,7 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
                     precision, recall, _ = precision_recall_curve(labels_cpu, prob_cpu)
                     prauc_val += auc(recall, precision)
 
-            del inputs, labels, outputs, preds
+            del inputs, labels, outputs
             torch.cuda.empty_cache()
 
         val_avg_loss = loss_val / val_batches_size
@@ -575,14 +587,14 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
         val_avg_prauc = prauc_val / val_auc_count
         val_avg_f1score = f1score_val / val_auc_count
 
-
         val_avg_loss_list.append(val_avg_loss)
-        val_avg_acc_list.append(val_avg_acc.cpu().detach().numpy())
+        val_avg_acc_list.append(val_avg_acc)
         val_avg_prauc_list.append(val_avg_prauc)
         val_avg_f1score_list.append(val_avg_f1score)
         val_avg_auc_list.append(val_avg_auc)
         val_epoch_list.append(epoch)
         val_iteration_list.append(i)
+        val_iteration_acc_list.append(epoch * val_batches_size + i)
 
         print("\rEpoch {}, Training loss/acc/auc/prauc/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}; "
               "Validation loss/acc/auc/prauc/f1score: {:.4f} / {:.4f} / {:.4f} / {:.4f} / {:.4f}".
@@ -612,6 +624,7 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
     history_train = {}
     history_train['epoch'] = train_epoch_list
     history_train['iteration'] = train_iteration_list
+    history_train['iteration_acc'] = train_iteration_acc_list
     history_train['avg_loss'] = train_avg_loss_list
     history_train['avg_acc']  = train_avg_acc_list
     history_train['avg_auc'] = train_avg_auc_list
@@ -621,6 +634,7 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
     history_val = {}
     history_val['epoch'] = val_epoch_list
     history_val['iteration'] = val_iteration_list
+    history_val['iteration_acc'] = val_iteration_acc_list
     history_val['avg_loss']   = val_avg_loss_list
     history_val['avg_acc']    = val_avg_acc_list
     history_val['avg_auc'] = val_avg_auc_list
