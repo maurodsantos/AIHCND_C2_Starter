@@ -44,8 +44,8 @@ np.random.seed(0)
 BATCH_SIZE = 20
 NUM_EPOCHS = 30
 LOG_SIZE = 50
-EXP_NAME = 'tests_imbalance'
-TL_MODEL = 'densenet121'
+EXP_NAME = 'tests_balance'
+TL_MODEL = 'resnet50_v2'
 MODEL_NAME = 'PneumoNet'
 BALANCE_TRAINING = False
 # %%
