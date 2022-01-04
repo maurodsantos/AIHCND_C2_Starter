@@ -41,13 +41,13 @@ from torch.utils.data import Dataset, DataLoader
 
 torch.manual_seed(0)
 np.random.seed(0)
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 NUM_EPOCHS = 30
 LOG_SIZE = 50
 EXP_NAME = 'tests_balance'
 TL_MODEL = 'resnet50_v2'
 MODEL_NAME = 'PneumoNet'
-BALANCE_TRAINING = False
+BALANCE_TRAINING = True
 # %%
 
 print("torch.cuda.is_available()", torch.cuda.is_available())
@@ -100,7 +100,6 @@ def load_xray_data():
     print(df)
     return df, disease_labels
 
-
 xray_df, disease_labels = load_xray_data()
 # %%
 
@@ -130,7 +129,7 @@ xray_df, disease_labels = load_xray_data()
 
 # %%
 
-def create_splits_test(df, val_prop, test_prop, class_name):
+def create_splits_test(df, val_prop, test_prop, class_name, balanced=True):
     ## Either build your own or use a built-in library to split your original dataframe into two sets
     ## that can be used for training and testing your model
     ## It's important to consider here how balanced or imbalanced you want each of those sets to be
@@ -147,7 +146,8 @@ def create_splits_test(df, val_prop, test_prop, class_name):
 
     train_patient_df = df[df['Patient ID'].isin(train_patient_df.index.values)]
 
-    train_patient_df = train_patient_df.groupby(class_name).apply(lambda data: data.sample(n=len(train_patient_df) // 2, replace=True))
+    if balanced:
+        train_patient_df = train_patient_df.groupby(class_name).apply(lambda data: data.sample(n=len(train_patient_df) // 2, replace=True))
 
     validation_patient_df = df[df['Patient ID'].isin(validation_patient_df.index.values)]
 
@@ -231,7 +231,7 @@ def my_image_augmentation():
     ## built into something like a Keras package
     transformations = transforms.Compose([  # transforms.ToPILImage(),
         # transforms.CenterCrop(224),  #
-        transforms.RandomResizedCrop(224),
+        transforms.Resize(224),
         transforms.RandomHorizontalFlip(),
         transforms.RandomRotation(20),
         transforms.ToTensor(),
@@ -241,7 +241,7 @@ def my_image_augmentation():
     return transformations
 
 
-def make_train_gen(trainset, batch_size, transformations, use_sampler=False):
+def make_train_gen(trainset, batch_size, transformations):
     ## Create the actual generators using the output of my_image_augmentation for your training data
     ## Suggestion here to use the flow_from_dataframe library, e.g.:
 
@@ -254,21 +254,12 @@ def make_train_gen(trainset, batch_size, transformations, use_sampler=False):
     #                                          batch_size =
     #                                          )
     train_gen = ImageDataset(trainset, transformations)
-    if use_sampler:
-        #class_weights = [train_data['Pneumonia'].size/(train_data['Pneumonia'] == 0).sum(),train_data['Pneumonia'].size/train_data['Pneumonia'].sum()]
-        class_sample_count = np.unique(trainset['Pneumonia'].values, return_counts=True)[1]
-        weight = 1. / class_sample_count
-        samples_weight = weight[trainset['Pneumonia'].values]
-        samples_weight = torch.from_numpy(samples_weight)
-        sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
-        trainloader = DataLoader(dataset=train_gen, batch_size=batch_size, sampler=sampler)
-    else:
-        trainloader = DataLoader(dataset=train_gen, batch_size=batch_size, shuffle=True)
+    trainloader = DataLoader(dataset=train_gen, batch_size=batch_size, shuffle=True)
 
     return trainloader
 
 
-def make_val_gen(valset, batch_size, use_sampler=False, shuffle=True):
+def make_val_gen(valset, batch_size, shuffle=True):
     #     val_gen = my_val_idg.flow_from_dataframe(dataframe = val_data,
     #                                              directory=None,
     #                                              x_col = ,
@@ -278,30 +269,22 @@ def make_val_gen(valset, batch_size, use_sampler=False, shuffle=True):
     #                                              batch_size = )
 
     transformations = transforms.Compose([
-        transforms.Resize(256),
+        transforms.Resize(224),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
     val_gen = ImageDataset(valset, transformations)
-    if use_sampler:
-        class_sample_count = np.unique(valset['Pneumonia'].values, return_counts=True)[1]
-        weight = 1. / class_sample_count
-        samples_weight = weight[valset['Pneumonia'].values]
-        samples_weight = torch.from_numpy(samples_weight)
-        sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
-        valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=False, sampler=sampler)
-    else:
-        valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=shuffle)
+    valloader = DataLoader(dataset=val_gen, batch_size=batch_size, shuffle=shuffle)
 
     return valloader
 
 
 # %%
 ## May want to pull a single large batch of random validation data for testing after each epoch:
-val_gen = make_val_gen(val_data, BATCH_SIZE, use_sampler=BALANCE_TRAINING)
+val_gen = make_val_gen(val_data, BATCH_SIZE)
 # valX, valY = next(iter(val_gen))
 # %%
-train_gen = make_train_gen(train_data, BATCH_SIZE, my_image_augmentation(), use_sampler=BALANCE_TRAINING)
+train_gen = make_train_gen(train_data, BATCH_SIZE, my_image_augmentation())
 # trainX, trainY = next(iter(train_gen))
 
 # %% md
@@ -328,7 +311,7 @@ class PneumoNet(nn.Module):
                       nn.BatchNorm1d(num_features),
                       nn.Linear(num_features, 256),
                       nn.ReLU(),
-                      nn.Dropout(0.5),
+                      nn.Dropout(0.4),
                       nn.Linear(256, out_size))
 
     def forward(self, x):
@@ -357,13 +340,10 @@ criterion = nn.BCEWithLogitsLoss()
 #
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
 #
-#optimizer = optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.999))
-if BALANCE_TRAINING:
-    optimizer = optim.SGD(model.parameters(), lr=0.02, momentum=0.9)
-else:
-    optimizer = optim.RMSprop(model.parameters(), lr=0.001)
-    #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=2, gamma=np.exp(-0.1))
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
+#optimizer = optim.RMSprop(model.parameters(), lr=0.001)
+#optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=4)
 
 # %%
 
