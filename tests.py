@@ -440,7 +440,7 @@ def train_model(dnn_model, model_criterion, model_optimizer, scheduler, num_epoc
     val_batches_size = len(val_gen)
 
     patience_aux = 0
-    softmax = nn.Softmax(dim=1)
+
     for epoch in range(num_epochs):
 
         print("Epoch {}/{}".format(epoch, num_epochs))
