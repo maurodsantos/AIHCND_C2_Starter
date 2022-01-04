@@ -340,10 +340,10 @@ criterion = nn.BCEWithLogitsLoss()
 #
 # Decays the learning rate of each parameter group by gamma every step_size epochs. Notice that such decay can happen simultaneously with other changes to the learning rate from outside this scheduler. When last_epoch=-1, sets initial lr as lr.
 #
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-#optimizer = optim.RMSprop(model.parameters(), lr=0.001)
+#optimizer = optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.999))
+optimizer = optim.RMSprop(model.parameters(), lr=0.001)
 #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=4)
+exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=np.exp(-0.1))
 
 # %%
 
